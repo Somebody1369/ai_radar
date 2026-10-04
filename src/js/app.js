@@ -3,11 +3,12 @@ import { PAGE_SIZE, TASKS, NICHES, ALL_CATEGORIES, slugify } from './config.js';
 import { search, lookup, suggest, setCache } from './api.js';
 import { matchesMetaFilters } from './classify.js';
 import { t, localePath, fmtNum, taskName, categoryName } from './i18n.js';
-import { grid, pagination, message, skeleton, resultsMeta, siteDetail, compareTable, favicon, esc, icon, sitePath, categoryHref } from './templates.js';
+import { grid, pagination, message, skeleton, resultsMeta, siteDetail, compareTable, favicon, esc, icon, sitePath, categoryHref, setLatest } from './templates.js';
 import { readState, writeState, isDeep, toApiParams, pageCount } from './listing.js';
 
 const lang = document.body.dataset.lang === 'en' ? 'en' : 'uk';
 const L = t(lang);
+setLatest(document.body.dataset.latest);
 
 // ---------- response cache: memory + sessionStorage (10 min) ----------
 const mem = new Map();
@@ -393,11 +394,38 @@ if (hero) {
     e.preventDefault();
     const q = hero.elements.q.value.trim();
     const cat = catOf();
+    // A query that names a task ("музика", "logos") opens the tool finder for it.
+    const task = q && TASKS.find((tk) => [taskName(tk.slug, 'uk'), taskName(tk.slug, 'en'), tk.slug].some((v) => lower(v) === lower(q)));
+    if (task) { location.href = localePath(lang, `/tools/${task.slug}/`); return; }
     if (!q && NICHES.includes(cat)) { location.href = localePath(lang, `/niche/${slugify(cat)}/`); return; }
     const qs = writeState({ cat: cat || undefined, q: q || undefined });
     location.href = localePath(lang, '/sites/') + (qs ? `?${qs}` : '');
   });
 }
+
+// ---------- tabs (home: new startups by niche) ----------
+document.querySelectorAll('[data-tabs]').forEach((root) => {
+  const tabs = [...root.querySelectorAll('[role="tab"]')];
+  const select = (tab, focus = false) => {
+    tabs.forEach((t2) => {
+      const on = t2 === tab;
+      t2.setAttribute('aria-selected', String(on));
+      t2.tabIndex = on ? 0 : -1;
+      document.getElementById(t2.getAttribute('aria-controls')).hidden = !on;
+    });
+    if (focus) tab.focus();
+    syncCompareButtons();
+  };
+  tabs.forEach((tab, i) => {
+    tab.addEventListener('click', () => select(tab));
+    tab.addEventListener('keydown', (e) => {
+      const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+      if (next === undefined) return;
+      e.preventDefault();
+      select(tabs[(next + tabs.length) % tabs.length], true);
+    });
+  });
+});
 
 // ---------- list pages ----------
 function initList(root) {

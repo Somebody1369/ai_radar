@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { TASKS, NICHES, BUILDERS, TLDS, PAGE_SIZE, slugify } from '../src/js/config.js';
 import { search, stats, setCache } from '../src/js/api.js';
 import { LANGS, t, taskName, taskDesc, categoryName, fmtDate, fmtNum, localePath } from '../src/js/i18n.js';
-import { esc, icon, grid, pagination, resultsMeta, siteDetail, sitePath, message, nicheOptions } from '../src/js/templates.js';
+import { esc, icon, grid, pagination, resultsMeta, siteDetail, sitePath, message, nicheOptions, cardMini, setLatest } from '../src/js/templates.js';
 import { toApiParams, pageCount } from '../src/js/listing.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -49,7 +49,7 @@ async function safe(label, fn) {
 }
 
 const LIST = {
-  catalog: { preset: { ai_startups: 1 }, sort: 'new', base: '/sites/', filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'dates', 'flags'] },
+  catalog: { preset: { ai_startups: 1 }, sort: 'dr', base: '/sites/', filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'dates', 'flags'] },
   task: (task) => ({ preset: { ...task.params }, sort: task.params.q ? 'relevance' : 'dr', base: `/tools/${task.slug}/`, filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'dr', 'flags'] }),
   // On niche pages the niche select switches to another niche page instead of filtering in place.
   niche: (name) => ({ preset: { ai_categories: name }, sort: 'dr', base: `/niche/${slugify(name)}/`, nicheNav: true, filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'flags'] }),
@@ -60,23 +60,39 @@ const fetchList = (cfg, label) => safe(label, () => search(toApiParams(cfg, {}))
 
 console.log(`Fetching FreeSerp data… (site: ${SITE})`);
 const statsData = await safe('stats', () => stats());
-const top = await safe('top', () => search({ ai_startups: 1, sort: 'dr', order: 'desc', size: 12 }));
 const catalog = await fetchList(LIST.catalog, 'catalog');
 
-const latest = catalog?.results.find((s) => s.wentLive)?.wentLive || BUILD_DATE;
-const weekAgo = new Date(Date.parse(`${latest}T00:00:00Z`) - 6 * 864e5).toISOString().slice(0, 10);
+// "New" is measured from the latest date in the data, not from today: the index lags real time.
+const newest = await safe('latest', () => search({ ai_startups: 1, sort: 'went_live', order: 'desc', size: 1 }));
+const latest = newest?.results[0]?.wentLive || BUILD_DATE;
+setLatest(latest);
+const daysBefore = (n) => new Date(Date.parse(`${latest}T00:00:00Z`) - n * 864e5).toISOString().slice(0, 10);
+const weekAgo = daysBefore(6);
+const monthAgo = daysBefore(29);
 LIST.freshCfg = LIST.fresh(weekAgo, latest);
 const fresh = await fetchList(LIST.freshCfg, 'new');
 
+// Newest sites of a category: the last 30 days of data; small categories fall back to their newest ever.
+async function newestIn(preset, label) {
+  const base = { ...preset, sort: 'went_live', order: 'desc', size: 6 };
+  const recent = await safe(`${label} new`, () => search({ ...base, from_date: monthAgo, to_date: latest }));
+  if (recent && recent.results.length >= 3) return recent;
+  return (await safe(`${label} new (all time)`, () => search(base))) || recent;
+}
+
 const tasks = [];
-for (const task of TASKS) tasks.push({ task, cfg: LIST.task(task), data: await fetchList(LIST.task(task), `task ${task.slug}`) });
+for (const task of TASKS) {
+  tasks.push({ task, cfg: LIST.task(task), data: await fetchList(LIST.task(task), `task ${task.slug}`), fresh: await newestIn(task.params, `task ${task.slug}`) });
+}
 const niches = [];
-for (const name of NICHES) niches.push({ name, cfg: LIST.niche(name), data: await fetchList(LIST.niche(name), `niche ${name}`) });
+for (const name of NICHES) {
+  niches.push({ name, cfg: LIST.niche(name), data: await fetchList(LIST.niche(name), `niche ${name}`), fresh: await newestIn({ ai_categories: name }, `niche ${name}`) });
+}
 console.log(`  ${requests} API requests ok`);
 
 // Every site that appears in a prerendered list gets its own indexable page.
 const sites = new Map();
-for (const d of [top, catalog, fresh, ...tasks.map((x) => x.data), ...niches.map((x) => x.data)]) {
+for (const d of [catalog, fresh, ...tasks.flatMap((x) => [x.data, x.fresh]), ...niches.flatMap((x) => [x.data, x.fresh])]) {
   // IDN / odd domains stay client-rendered: their folder names would not match encoded URLs.
   for (const s of d?.results || []) if (/^[a-z0-9.-]+$/.test(s.domain) && !sites.has(s.domain)) sites.set(s.domain, s);
 }
@@ -129,7 +145,7 @@ ${LANGS.map((l) => `<link rel="alternate" hreflang="${l}" href="${SITE + localeP
 <link rel="stylesheet" href="/assets/css/style.css">
 ${ld.map(jsonld).join('\n')}
 </head>
-<body data-lang="${lang}">
+<body data-lang="${lang}" data-latest="${latest}">
 <a class="skip" href="#main">${L.skip}</a>
 <header class="header">
   <div class="wrap header-in">
@@ -225,6 +241,23 @@ const itemListLd = (lang, data) => ({
   itemListElement: (data?.results || []).slice(0, 24).map((s, i) => ({ '@type': 'ListItem', position: i + 1, url: SITE + sitePath(lang, s.domain), name: s.domain })),
 });
 
+function newInBlock(lang, data, base) {
+  const list = data?.results || [];
+  if (!list.length) return '';
+  const L = t(lang);
+  const dates = list.map((s) => s.wentLive).filter(Boolean).sort();
+  return `<section class="newin" aria-labelledby="newin-h">
+  <div class="section-head">
+    <div><h2 class="h3 newin-title" id="newin-h">${icon('sparkles', 'icon icon-sm')}${L.newIn.title}</h2>
+    ${dates.length ? `<p class="muted small">${esc(L.newIn.range(fmtDate(dates[0], lang), fmtDate(dates[dates.length - 1], lang)))}</p>` : ''}</div>
+    <a class="link-more" href="${localePath(lang, base)}?sort=new">${L.newIn.more}${icon('arrow', 'icon icon-xs')}</a>
+  </div>
+  <div class="mini-grid">${list.slice(0, 6).map((s) => cardMini(s, lang)).join('')}</div>
+</section>`;
+}
+
+const HOME_NEW_NICHES = ['AI Agents & Autonomous', 'AI Chatbot & Assistant', 'Code & Dev Tools', 'Image Generation', 'Video Generation', 'Voice & Text-to-Speech'];
+
 const pageHead = (h1, lead, extra = '') => `<div class="page-head">${extra}<h1 class="h1">${h1}</h1>${lead ? `<p class="lead">${lead}</p>` : ''}</div>`;
 
 // ---------- pages ----------
@@ -243,12 +276,20 @@ for (const lang of LANGS) {
     <span class="tile-body"><span class="tile-title">${esc(taskName(task.slug, lang))}</span><span class="tile-desc">${esc(taskDesc(task.slug, lang))}</span></span>
     ${n ? `<span class="tile-count">${fmtNum(n, lang)}</span>` : ''}
   </a>`;
-  const statsRow = statsData ? `<div class="stats">
-    <div class="stat"><strong>${fmtNum(statsData.totals?.real_sites, lang)}</strong><span>${H.statSites}</span></div>
-    <div class="stat"><strong>${fmtNum(total, lang)}</strong><span>${H.statStartups}</span></div>
-    <div class="stat"><strong>${fmtNum(statsData.new?.last_7d, lang)}</strong><span>${H.statWeek}</span></div>
-    <div class="stat"><strong>${TASKS.length}</strong><span>${H.statTasks}</span></div>
-  </div>` : '';
+  // Numbers about what the visitor gets (AI startups, how many are new), not about the whole index.
+  // No "new in 30 days": the index was bulk-loaded on 7–13 Aug, so that window counts almost everything.
+  const statItems = [[total, H.statStartups], [fresh?.total, H.statWeek], [TASKS.length, H.statTasks(TASKS.length)], [NICHES.length, H.statNiches]]
+    .filter(([n]) => typeof n === 'number');
+  const statsRow = `<div class="stats">${statItems.map(([n, label]) => `<div class="stat"><strong>${fmtNum(n, lang)}</strong><span>${label}</span></div>`).join('')}</div>`;
+
+  const tabSets = [
+    { label: L.filters.allNiches, data: fresh, href: localePath(lang, '/new/'), more: H.newAll },
+    ...HOME_NEW_NICHES.map((n) => ({ label: categoryName(n, lang), data: niches.find((x) => x.name === n)?.fresh, href: `${localePath(lang, `/niche/${slugify(n)}/`)}?sort=new`, more: H.newMore })),
+  ].filter((x) => x.data?.results.length);
+  const newTabs = `<div class="tabs" data-tabs>
+    <div class="tablist" role="tablist" aria-label="${esc(H.newTitle)}">${tabSets.map((x, i) => `<button type="button" role="tab" class="tab" id="nt-${i}" aria-controls="np-${i}" aria-selected="${i === 0}" tabindex="${i === 0 ? 0 : -1}">${esc(x.label)}</button>`).join('')}</div>
+    ${tabSets.map((x, i) => `<div class="tabpanel" role="tabpanel" id="np-${i}" aria-labelledby="nt-${i}"${i ? ' hidden' : ''}>${grid(x.data.results.slice(0, 6), lang)}<p class="tab-more"><a class="link-more" href="${x.href}">${x.more}${icon('arrow', 'icon icon-xs')}</a></p></div>`).join('')}
+  </div>`;
   const section = (title, lead, href, content) => `<section class="section">
     <div class="section-head"><div><h2 class="h2">${title}</h2>${lead ? `<p class="muted">${lead}</p>` : ''}</div>${href ? `<a class="link-more" href="${href}">${H.viewAll}${icon('arrow', 'icon icon-xs')}</a>` : ''}</div>
     ${content}
@@ -256,7 +297,7 @@ for (const lang of LANGS) {
   const popular = ['music', 'video-generation', 'logo', 'favicon', 'upscale', 'background-removal'];
   const homeBody = `
 <section class="hero">
-  ${total ? `<p class="eyebrow">${icon('radar', 'icon icon-xs')}${esc(H.eyebrow(fmtNum(total, lang), fmtDate(latest, lang)))}</p>` : ''}
+  <p class="eyebrow">${icon('radar', 'icon icon-xs')}${esc(H.eyebrow(fmtDate(latest, lang)))}</p>
   <h1 class="display">${H.h1}</h1>
   <p class="lead">${H.lead}</p>
   <form class="hero-search" action="${localePath(lang, '/sites/')}" method="get" role="search" data-hero-search>
@@ -268,8 +309,7 @@ for (const lang of LANGS) {
 </section>
 ${statsRow}
 ${section(H.tasksTitle, H.tasksLead, localePath(lang, '/tools/'), `<div class="tiles">${TASKS.slice(0, 12).map((x) => taskTile(x, taskTotals[x.slug])).join('')}</div>`)}
-${fresh?.results.length ? section(H.freshTitle, H.freshLead, localePath(lang, '/new/'), grid(fresh.results.slice(0, 6), lang)) : ''}
-${top?.results.length ? section(H.topTitle, H.topLead, localePath(lang, '/sites/?sort=dr'), grid(top.results.slice(0, 6), lang)) : ''}
+${tabSets.length ? section(H.newTitle, H.newLead, '', newTabs) : ''}
 ${section(H.nichesTitle, '', '', `<div class="niche-grid">${niches.map(({ name, data }) => `<a class="niche" href="${localePath(lang, `/niche/${slugify(name)}/`)}"><span>${esc(categoryName(name, lang))}</span>${data ? `<span class="muted small">${fmtNum(data.total, lang)}</span>` : ''}</a>`).join('')}</div>`)}
 <section class="section honest">
   <h2 class="h3">${H.honestTitle}</h2>
@@ -288,13 +328,14 @@ ${section(H.nichesTitle, '', '', `<div class="niche-grid">${niches.map(({ name, 
   }));
 
   // Task pages
-  for (const { task, cfg, data } of tasks) {
+  for (const { task, cfg, data, fresh: taskNew } of tasks) {
     const name = taskName(task.slug, lang);
     const crumbs = breadcrumbs(lang, [{ name: L.nav.tools, path: '/tools/' }, { name, path: `/tools/${task.slug}/` }]);
     const others = TASKS.filter((x) => x.slug !== task.slug).slice(0, 8);
     await writePage(lang, `/tools/${task.slug}/`, layout({
       lang, pathname: `/tools/${task.slug}/`, title: L.tools.pageTitle(name), description: L.tools.pageDescription(name), active: 'tools', ld: [crumbs.ld, itemListLd(lang, data)],
       body: `${crumbs.html}${pageHead(esc(name), esc(taskDesc(task.slug, lang)), `<span class="tile-icon tile-icon-lg">${icon(task.icon)}</span>`)}
+${newInBlock(lang, taskNew, cfg.base)}
 ${listSection(cfg, data, lang)}
 <section class="section"><h2 class="h3">${L.nav.tools}</h2><div class="hero-chips">${others.map((x) => `<a class="chip" href="${localePath(lang, `/tools/${x.slug}/`)}">${esc(taskName(x.slug, lang))}</a>`).join('')}</div></section>`,
     }));
@@ -308,13 +349,13 @@ ${listSection(cfg, data, lang)}
   }));
 
   // Niches
-  for (const { name, cfg, data } of niches) {
+  for (const { name, cfg, data, fresh: nicheNew } of niches) {
     const label = categoryName(name, lang);
     const p = `/niche/${slugify(name)}/`;
     const crumbs = breadcrumbs(lang, [{ name: L.nav.catalog, path: '/sites/' }, { name: label, path: p }]);
     await writePage(lang, p, layout({
       lang, pathname: p, title: L.niche.title(label), description: L.niche.description(label), active: 'catalog', ld: [crumbs.ld, itemListLd(lang, data)],
-      body: `${crumbs.html}${pageHead(esc(L.niche.h1(label)), esc(L.niche.lead(label)))}${listSection(cfg, data, lang)}`,
+      body: `${crumbs.html}${pageHead(esc(L.niche.h1(label)), esc(L.niche.lead(label)))}${newInBlock(lang, nicheNew, cfg.base)}${listSection(cfg, data, lang)}`,
     }));
   }
 

@@ -1,30 +1,38 @@
 // UI dictionary (uk is the default language, en lives under /en/).
 export const LANGS = ['uk', 'en'];
 
+// Ukrainian plural forms: 1 задача, 2 задачі, 5 задач (11–14 take the last form).
+const ukPlural = (n, one, few, many) => {
+  const d = n % 10;
+  const dd = n % 100;
+  if (d === 1 && dd !== 11) return one;
+  return d >= 2 && d <= 4 && (dd < 12 || dd > 14) ? few : many;
+};
+
 const uk = {
   siteName: 'AI Radar',
   tagline: 'Каталог нових AI-інструментів',
-  nav: { tools: 'Інструменти', catalog: 'Каталог', new: 'Новинки', compare: 'Порівняння' },
+  nav: { tools: 'Інструменти', catalog: 'Усі AI-сайти', new: 'Нові стартапи', compare: 'Порівняння' },
   skip: 'Перейти до змісту',
   home: {
     title: 'AI Radar — AI-інструмент для будь-якої задачі',
     description: 'Каталог нових AI-сайтів і стартапів: пошук інструментів для музики, відео, зображень, лого та брендингу, фільтри за ціною та реєстрацією, порівняння.',
-    eyebrow: (n, date) => `${n} AI-стартапів у базі · дані на ${date}`,
+    eyebrow: (date) => `Дані FreeSerp на ${date}`,
     h1: 'AI-інструмент для будь-якої задачі',
-    lead: 'Музика, відео, зображення, лого, фавіконки, ретуш — шукайте серед тисяч нових AI-сайтів, фільтруйте за ціною та реєстрацією, порівнюйте.',
+    lead: 'Знайдіть інструмент під задачу — музика, відео, лого, фавіконки, ретуш — і подивіться, які нові AI-стартапи з’явилися саме в цій категорії.',
     searchPh: 'Наприклад: video editor, генератор лого, чат-бот…',
     searchBtn: 'Шукати',
     popular: 'Популярні задачі:',
-    statSites: 'живих сайтів в індексі',
-    statStartups: 'AI-стартапів',
-    statWeek: 'нових сайтів за 7 днів',
-    statTasks: 'задач у пошуку інструментів',
+    statStartups: 'AI-стартапів у базі',
+    statWeek: 'нових AI-стартапів за тиждень',
+    statTasks: (n) => `${ukPlural(n, 'задача', 'задачі', 'задач')} у пошуку інструментів`,
+    statNiches: 'ніш AI-стартапів',
     tasksTitle: 'Що хочете зробити?',
     tasksLead: 'Оберіть задачу — покажемо інструменти з позначками ціни та доступу.',
-    freshTitle: 'Свіжі в індексі',
-    freshLead: 'AI-стартапи, які найпізніше з’явилися в базі FreeSerp.',
-    topTitle: 'Найавторитетніші',
-    topLead: 'AI-продукти з найвищим Domain Rating.',
+    newTitle: 'Нові стартапи за категоріями',
+    newLead: 'Що з’явилося в індексі останнім — оберіть нішу.',
+    newMore: 'Усі нові в ніші',
+    newAll: 'Усі нові стартапи',
     nichesTitle: 'Ніші AI-стартапів',
     honestTitle: 'Чесно про дані',
     honest: [
@@ -44,10 +52,10 @@ const uk = {
     pageDescription: (name) => `${name}: добірка AI-інструментів з позначками ціни (безкоштовно, freemium, платно) і доступу (без реєстрації, акаунт).`,
   },
   catalog: {
-    title: 'Каталог AI-сайтів і стартапів',
-    description: 'Пошук і фільтри по нових AI-сайтах: ніша, конструктор (Lovable, v0, Bolt), домен, Domain Rating, дата появи, ціна та реєстрація.',
-    h1: 'Каталог AI-стартапів',
-    lead: 'Нові AI-продукти з індексу FreeSerp. Комбінуйте фільтри — посилання зберігає вибір.',
+    title: 'Усі AI-сайти: пошук і фільтри',
+    description: 'Пошук і фільтри по AI-сайтах і стартапах: ніша, конструктор (Lovable, v0, Bolt), домен, Domain Rating, дата появи, ціна та реєстрація.',
+    h1: 'Усі AI-сайти',
+    lead: 'Усі AI-продукти з індексу FreeSerp. Комбінуйте фільтри — посилання зберігає вибір.',
   },
   niche: {
     title: (name) => `${name}: нові AI-стартапи`,
@@ -56,10 +64,10 @@ const uk = {
     lead: (name) => `AI-стартапи в ніші «${name}». За замовчуванням — за Domain Rating.`,
   },
   fresh: {
-    title: 'Новинки AI: сайти, що щойно з’явилися',
-    description: 'AI-стартапи, які з’явилися в індексі за останній тиждень: опис, ніша, DR, ціна та реєстрація.',
-    h1: 'Новинки',
-    lead: (from, to) => `AI-стартапи, що з’явилися в індексі з ${from} по ${to} — останній тиждень, за який є дані.`,
+    title: 'Нові AI-стартапи за тиждень — за нішами',
+    description: 'AI-стартапи, які з’явилися в індексі за останній тиждень: оберіть нішу й дивіться опис, DR, ціну та реєстрацію.',
+    h1: 'Нові стартапи',
+    lead: (from, to) => `AI-стартапи, що з’явилися в індексі з ${from} по ${to} — останній тиждень, за який є дані. Оберіть нішу, щоб побачити новинки саме в ній.`,
   },
   site: {
     title: (s) => `${s.domain} — огляд AI-сервісу`,
@@ -122,7 +130,8 @@ const uk = {
   pricing: { any: 'Будь-яка', hasfree: 'Free / freemium', free: 'Безкоштовно', freemium: 'Freemium', trial: 'Пробний період', paid: 'Платно', unknown: 'Ціна не вказана' },
   access: { any: 'Будь-який', noauth: 'Без реєстрації', account: 'Є акаунти', waitlist: 'Лист очікування', unknown: 'Доступ не вказано' },
   builders: { ai: 'Будь-який AI-конструктор', ai_likely: 'Схоже на AI-генерацію', nextjs: 'Next.js', react: 'React', wordpress: 'WordPress', wix: 'Wix', shopify: 'Shopify', webflow: 'Webflow', framer: 'Framer', lovable: 'Lovable', v0: 'v0', bolt: 'Bolt', base44: 'Base44' },
-  card: { details: 'Детальніше', open: 'Сайт', compare: 'Порівняти', inCompare: 'У порівнянні', dr: 'DR', live: 'в індексі', aiBuilt: 'AI-конструктор' },
+  card: { details: 'Детальніше', open: 'Сайт', compare: 'Порівняти', inCompare: 'У порівнянні', dr: 'DR', live: 'в індексі', aiBuilt: 'AI-конструктор', new: 'Новий', newWhy: 'З’явився в індексі за останні 14 днів даних' },
+  newIn: { title: 'Нове в категорії', range: (a, b) => (a === b ? `Останні появи в індексі: ${a}` : `Останні появи в індексі: ${a} – ${b}`), more: 'Усі за датою появи' },
   list: {
     shown: (a, b, total) => `Показано ${a}–${b} з ${total}`,
     deep: (n, scanned) => `Знайдено ${n} серед перших ${scanned} результатів (ціна й доступ визначаються за текстом сторінки)`,
@@ -152,27 +161,27 @@ const uk = {
 const en = {
   siteName: 'AI Radar',
   tagline: 'Directory of new AI tools',
-  nav: { tools: 'Tools', catalog: 'Catalog', new: 'New', compare: 'Compare' },
+  nav: { tools: 'Tools', catalog: 'All AI sites', new: 'New startups', compare: 'Compare' },
   skip: 'Skip to content',
   home: {
     title: 'AI Radar — AI tool for any task',
     description: 'Directory of new AI sites and startups: find tools for music, video, images, logos and branding, filter by pricing and sign-up, compare side by side.',
-    eyebrow: (n, date) => `${n} AI startups indexed · data as of ${date}`,
+    eyebrow: (date) => `FreeSerp data as of ${date}`,
     h1: 'AI tool for any task',
-    lead: 'Music, video, images, logos, favicons, retouching — search thousands of new AI sites, filter by pricing and sign-up, compare.',
+    lead: 'Find a tool for your task — music, video, logos, favicons, retouching — and see which new AI startups just appeared in that category.',
     searchPh: 'e.g. video editor, logo generator, chatbot…',
     searchBtn: 'Search',
     popular: 'Popular tasks:',
-    statSites: 'live sites indexed',
-    statStartups: 'AI startups',
-    statWeek: 'new sites in 7 days',
-    statTasks: 'tasks in the tool finder',
+    statStartups: 'AI startups indexed',
+    statWeek: 'new AI startups this week',
+    statTasks: () => 'tasks in the tool finder',
+    statNiches: 'AI startup niches',
     tasksTitle: 'What do you want to make?',
     tasksLead: 'Pick a task to see tools labelled with pricing and access.',
-    freshTitle: 'Fresh in the index',
-    freshLead: 'AI startups that most recently appeared in FreeSerp.',
-    topTitle: 'Most authoritative',
-    topLead: 'AI products with the highest Domain Rating.',
+    newTitle: 'New startups by category',
+    newLead: 'What entered the index most recently — pick a niche.',
+    newMore: 'All new in this niche',
+    newAll: 'All new startups',
     nichesTitle: 'AI startup niches',
     honestTitle: 'Honest about the data',
     honest: [
@@ -192,10 +201,10 @@ const en = {
     pageDescription: (name) => `${name}: AI tools labelled by pricing (free, freemium, paid) and access (no sign-up, account).`,
   },
   catalog: {
-    title: 'Catalog of AI sites and startups',
-    description: 'Search and filter new AI sites: niche, builder (Lovable, v0, Bolt), TLD, Domain Rating, date indexed, pricing and sign-up.',
-    h1: 'AI startup catalog',
-    lead: 'New AI products from the FreeSerp index. Combine filters — the link keeps your selection.',
+    title: 'All AI sites: search and filters',
+    description: 'Search and filter AI sites and startups: niche, builder (Lovable, v0, Bolt), TLD, Domain Rating, date indexed, pricing and sign-up.',
+    h1: 'All AI sites',
+    lead: 'Every AI product in the FreeSerp index. Combine filters — the link keeps your selection.',
   },
   niche: {
     title: (name) => `${name}: new AI startups`,
@@ -204,10 +213,10 @@ const en = {
     lead: (name) => `AI startups in “${name}”. Sorted by Domain Rating by default.`,
   },
   fresh: {
-    title: 'New AI sites that just appeared',
-    description: 'AI startups that entered the index in the last week: summary, niche, DR, pricing and sign-up.',
-    h1: 'New',
-    lead: (from, to) => `AI startups indexed from ${from} to ${to} — the latest week with data.`,
+    title: 'New AI startups this week — by niche',
+    description: 'AI startups that entered the index in the last week: pick a niche and see summary, DR, pricing and sign-up.',
+    h1: 'New startups',
+    lead: (from, to) => `AI startups indexed from ${from} to ${to} — the latest week with data. Pick a niche to see what is new in it.`,
   },
   site: {
     title: (s) => `${s.domain} — AI service overview`,
@@ -270,7 +279,8 @@ const en = {
   pricing: { any: 'Any', hasfree: 'Free / freemium', free: 'Free', freemium: 'Freemium', trial: 'Free trial', paid: 'Paid', unknown: 'Pricing not stated' },
   access: { any: 'Any', noauth: 'No sign-up', account: 'Has accounts', waitlist: 'Waitlist', unknown: 'Access not stated' },
   builders: { ai: 'Any AI builder', ai_likely: 'Looks AI-generated', nextjs: 'Next.js', react: 'React', wordpress: 'WordPress', wix: 'Wix', shopify: 'Shopify', webflow: 'Webflow', framer: 'Framer', lovable: 'Lovable', v0: 'v0', bolt: 'Bolt', base44: 'Base44' },
-  card: { details: 'Details', open: 'Site', compare: 'Compare', inCompare: 'Comparing', dr: 'DR', live: 'indexed', aiBuilt: 'AI builder' },
+  card: { details: 'Details', open: 'Site', compare: 'Compare', inCompare: 'Comparing', dr: 'DR', live: 'indexed', aiBuilt: 'AI builder', new: 'New', newWhy: 'Entered the index within the last 14 days of data' },
+  newIn: { title: 'New in this category', range: (a, b) => (a === b ? `Latest additions to the index: ${a}` : `Latest additions to the index: ${a} – ${b}`), more: 'All by date added' },
   list: {
     shown: (a, b, total) => `Showing ${a}–${b} of ${total}`,
     deep: (n, scanned) => `${n} found among the first ${scanned} results (pricing and access are inferred from page text)`,

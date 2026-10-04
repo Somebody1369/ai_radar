@@ -6,6 +6,7 @@
 |---|---|---|
 | Швидкість | 150–300 мс, edge-кеш 30 с | Кеш у sessionStorage на 10 хв |
 | **CORS** | Документація каже «CORS-open», але сервер шле `Access-Control-Allow-Origin: *` **двічі** (`*, *`). Браузер блокує відповідь | Проксі на своєму домені: Netlify rewrite `/api/fs` → `api.php` (і такий самий у `scripts/serve.mjs`) |
+| Масове завантаження | За 7–13 серпня 2026 в індекс потрапило 26 170 із 33 570 AI-стартапів (запуск індексу) | Немає лічильника «нових за 30 днів» — він рахував би майже все; «нове» = останній тиждень даних, бейдж «Новий» = 14 днів до останньої дати |
 | Свіжість | Найновіший `went_live` = 2026-09-08 (≈4 тижні до дати перевірки), `ai_startups.today = 0` | «Новинки» = останній тиждень **наявних** даних, дата показана в UI |
 | Кілька ніш | `ai_categories[]=A&ai_categories[]=B` → не-JSON; `A,B` → 0 результатів | Одна ніша на запит |
 | Таксономія | Ширша за документацію: `Audio & Music`, `Image Editing & Enhancement`, `Background Removal`, `Logo & Branding`, `Voice Cloning`, `AI Avatars & Headshots`, `Transcription & Speech-to-Text`, `3D & Modeling`, `Video Editing`, `Copywriting & Marketing`, `Translation & Language`, `Interior & Architecture`… | Задачі зіставлені з цими нішами |

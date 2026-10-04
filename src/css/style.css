@@ -221,6 +221,27 @@ a.chip:hover { background: var(--fill-hover); color: var(--text); }
 .stat strong { font-size: clamp(22px, 2.6vw, 30px); letter-spacing: -0.03em; font-weight: 600; }
 .stat span { color: var(--text-2); font-size: 13px; }
 
+/* "new" badge, new-in-category block, home tabs */
+.b-new { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+.newin { margin: 0 0 28px; padding: 20px 22px 22px; border-radius: var(--radius); background: linear-gradient(180deg, rgba(0, 153, 255, 0.07), rgba(0, 153, 255, 0) 70%), var(--surface); border: 1px solid rgba(0, 153, 255, 0.22); }
+.newin .section-head { margin-bottom: 14px; }
+.newin-title { display: flex; align-items: center; gap: 8px; margin: 0 0 2px; }
+.newin-title .icon { color: var(--accent); }
+.mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.mini { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 12px; border-radius: 16px; background: var(--fill); border: 1px solid var(--line); transition: background .15s, border-color .15s; }
+.mini:hover { background: var(--fill-hover); border-color: var(--line-strong); }
+.mini-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.mini-title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-sub { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+.mini-date { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.tablist { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 16px; padding: 2px; }
+.tablist::-webkit-scrollbar { display: none; }
+.tab { flex: none; height: 36px; padding: 0 16px; border-radius: var(--pill); border: 1px solid var(--line-strong); background: transparent; color: var(--text-2); font: 500 14px/1 var(--font); cursor: pointer; white-space: nowrap; transition: background .15s, color .15s; }
+.tab:hover { background: var(--fill-hover); color: var(--text); }
+.tab[aria-selected='true'] { background: #fff; border-color: #fff; color: #161616; }
+.tab-more { margin: 16px 0 0; }
+
 /* sections */
 .section { margin: 56px 0; }
 .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
@@ -396,6 +417,8 @@ tbody th { color: var(--text-3); font-weight: 500; width: 180px; white-space: no
   .field-flags { justify-content: stretch; }
   .field-flags .check { flex: 1; }
   .cmp-add { flex-direction: column; }
+  .mini-grid .mini:nth-child(n+4) { display: none; } /* the "all by date" link covers the rest */
+  .newin { padding: 16px; }
   .cmpbar { bottom: 12px; left: 16px; right: 16px; transform: none; width: auto; max-width: none; }
   .cmpbar-in { flex-wrap: nowrap; justify-content: space-between; gap: 6px; padding: 6px 6px 6px 14px; }
   .cmpbar-items, .cmpbar-note, .cmpbar-clear-text { display: none; }

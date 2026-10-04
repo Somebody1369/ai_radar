@@ -4,6 +4,12 @@ import { t, categoryName, fmtDate, fmtNum, localePath } from './i18n.js';
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '#');
+// "New" is relative to the latest date in the data (the index lags real time), set by build and client.
+let latestDate = null;
+export const setLatest = (d) => { latestDate = d || null; };
+export const isNew = (s) => Boolean(latestDate && s.wentLive && Date.parse(latestDate) - Date.parse(s.wentLive) <= 13 * 864e5);
+const newBadge = (s, lang) => (isNew(s) ? `<span class="badge b-new" tabindex="0" data-why="${esc(t(lang).card.newWhy)}">${esc(t(lang).card.new)}</span>` : '');
+
 // ai_source mixes builder ids (lovable) with raw generator tags ("gen:gridsome v0.7.23").
 // `not_ai` is the API's "no builder detected" marker, not something to show.
 const builderName = (src, lang) => (src && src !== 'not_ai' ? t(lang).builders[src] || src.replace(/^gen:/, '') : '—');
@@ -84,7 +90,7 @@ export function card(s, lang) {
     <span class="dr" title="Domain Rating">${L.card.dr} ${s.dr ?? '—'}</span>
   </div>
   <p class="card-summary">${esc(s.summary)}</p>
-  <div class="badges">${badges(s.meta, lang, { source: s.source, withUnknown: false })}</div>
+  <div class="badges">${newBadge(s, lang)}${badges(s.meta, lang, { source: s.source, withUnknown: false })}</div>
   ${cats ? `<div class="chips">${cats}</div>` : ''}
   <div class="card-foot">
     <span class="muted small">${L.card.live} ${fmtDate(s.wentLive, lang)}</span>
@@ -94,6 +100,15 @@ export function card(s, lang) {
     </div>
   </div>
 </article>`;
+}
+
+// Compact row for "new in this category": identity + date, links to the site card.
+export function cardMini(s, lang) {
+  return `<a class="mini" href="${sitePath(lang, s.domain)}">
+  ${favicon(s.domain, 32)}
+  <span class="mini-body"><span class="mini-title">${esc(s.domain)}</span><span class="mini-sub">${esc(s.title)}</span></span>
+  <span class="mini-meta">${isNew(s) ? `<span class="badge b-new">${esc(t(lang).card.new)}</span>` : ''}<span class="mini-date">${fmtDate(s.wentLive, lang)}</span></span>
+</a>`;
 }
 
 export const grid = (sites, lang) => `<div class="grid">${sites.map((s) => card(s, lang)).join('')}</div>`;
@@ -146,7 +161,7 @@ export function siteDetail(s, lang) {
     </div>
   </div>
   <p class="site-summary">${esc(s.summary)}</p>
-  <div class="badges badges-lg">${badges(s.meta, lang, { source: s.source })}</div>
+  <div class="badges badges-lg">${newBadge(s, lang)}${badges(s.meta, lang, { source: s.source })}</div>
   <h2 class="h3">${S.facts}</h2>
   <dl class="facts">
     ${row('Domain Rating', `<strong>${s.dr ?? '—'}</strong> / 100`)}
