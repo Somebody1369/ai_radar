@@ -43,15 +43,14 @@ export default async function handler(req) {
 
   try {
     const up = await fetch(`${API_BASE}?${out}`, { signal: AbortSignal.timeout(15000) });
+    // FreeSerp itself caches for 30 s; a short shared cache keeps repeated filter clicks off the API.
+    // Errors are never cached, so a FreeSerp hiccup does not stick for five minutes.
+    const cache = up.ok
+      ? { 'Cache-Control': 'public, max-age=300', 'Netlify-CDN-Cache-Control': 'public, max-age=300, stale-while-revalidate=600', 'Netlify-Vary': 'query' }
+      : { 'Cache-Control': 'no-store' };
     return new Response(await up.arrayBuffer(), {
       status: up.status,
-      headers: {
-        'Content-Type': up.headers.get('content-type') || 'application/json',
-        // FreeSerp itself caches for 30 s; a short shared cache keeps repeated filter clicks off the API.
-        'Cache-Control': 'public, max-age=300',
-        'Netlify-CDN-Cache-Control': 'public, max-age=300, stale-while-revalidate=600',
-        'Netlify-Vary': 'query',
-      },
+      headers: { 'Content-Type': up.headers.get('content-type') || 'application/json', ...cache },
     });
   } catch {
     return json(502, { ok: false, error: 'proxy' });

@@ -17,18 +17,6 @@ const CACHE_DIR = path.join(ROOT, '.cache');
 const SITE = (process.env.URL || 'http://localhost:8080').replace(/\/$/, '');
 const BUILD_DATE = new Date().toISOString().slice(0, 10);
 
-// JS/CSS go to /assets/<content hash>/: relative module imports then carry the version too, so a deploy
-// can never mix old and new modules, and the folder can be cached forever (see netlify.toml).
-async function hashDir(dirs) {
-  const h = createHash('sha1');
-  for (const dir of dirs) {
-    for (const f of (await readdir(dir, { recursive: true })).sort()) {
-      try { h.update(f).update(await readFile(path.join(dir, f))); } catch { /* sub-directory */ }
-    }
-  }
-  return h.digest('hex').slice(0, 10);
-}
-const ASSETS = `/assets/${await hashDir([path.join(ROOT, 'src/js'), path.join(ROOT, 'src/css')])}`;
 
 // The only inline script (lets CSS hide the mobile nav before app.js loads). Its hash is whitelisted in
 // the Content-Security-Policy in netlify.toml, so a change here must update that hash too.
@@ -129,6 +117,22 @@ for (const d of [catalog, fresh, ...tasks.flatMap((x) => [x.data, x.fresh]), ...
   // IDN / odd domains stay client-rendered: their folder names would not match encoded URLs.
   for (const s of d?.results || []) if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(s.domain) && !sites.has(s.domain)) sites.set(s.domain, s);
 }
+// Compact index of every prerendered site for instant prefix suggestions (the API has no prefix search).
+const SITES_INDEX = JSON.stringify([...sites.values()].map((s) => [s.domain, s.title.slice(0, 90), s.dr, s.categories]));
+
+// JS, CSS and the site index go to /assets/<content hash>/: relative module imports carry the version
+// too, so a deploy can never mix old and new modules, and the folder can be cached forever (netlify.toml).
+// The index is part of the hash, so fresh data gets a new URL even when the code did not change.
+async function hashAssets(dirs, extra) {
+  const h = createHash('sha1').update(extra);
+  for (const dir of dirs) {
+    for (const f of (await readdir(dir, { recursive: true })).sort()) {
+      try { h.update(f).update(await readFile(path.join(dir, f))); } catch { /* sub-directory */ }
+    }
+  }
+  return h.digest('hex').slice(0, 10);
+}
+const ASSETS = `/assets/${await hashAssets([path.join(ROOT, 'src/js'), path.join(ROOT, 'src/css')], SITES_INDEX)}`;
 
 // ---------- layout ----------
 
@@ -447,8 +451,7 @@ ${sitemap.flatMap((p) => LANGS.map((l) => urlEntry(p, l))).join('\n')}
 await writeFile(path.join(DIST, 'robots.txt'), `User-agent: *\nAllow: /\nDisallow: /site/$\nDisallow: /en/site/$\n\nSitemap: ${SITE}/sitemap.xml\n`);
 
 await cp(path.join(ROOT, 'src/js'), path.join(DIST, ASSETS, 'js'), { recursive: true });
-// Compact index of every prerendered site for instant prefix suggestions (the API has no prefix search).
-await writeFile(path.join(DIST, ASSETS, 'sites-index.json'), JSON.stringify([...sites.values()].map((s) => [s.domain, s.title.slice(0, 90), s.dr, s.categories])));
+await writeFile(path.join(DIST, ASSETS, 'sites-index.json'), SITES_INDEX);
 await cp(path.join(ROOT, 'src/css'), path.join(DIST, ASSETS, 'css'), { recursive: true });
 await cp(path.join(ROOT, 'src/static'), DIST, { recursive: true });
 
