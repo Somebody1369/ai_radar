@@ -189,12 +189,11 @@ export function compareTable(sites, lang) {
 </table></div>`;
 }
 
-// Niche <select> options: startup niches first (no group label), then "other categories", sorted per language.
+// Niche <select> options: one alphabetical list (in the page language) after "all niches".
 export function nicheOptions(lang, selected = '', anyLabel = t(lang).filters.allNiches) {
   const byName = (a, b) => categoryName(a, lang).localeCompare(categoryName(b, lang), lang);
   const opt = (c) => `<option value="${esc(c)}"${c === selected ? ' selected' : ''}>${esc(categoryName(c, lang))}</option>`;
-  const others = ALL_CATEGORIES.filter((c) => !NICHES.includes(c)).sort(byName);
-  return `<option value="">${esc(anyLabel)}</option>${[...NICHES].sort(byName).map(opt).join('')}<optgroup label="${esc(t(lang).filters.otherCategories)}">${others.map(opt).join('')}</optgroup>`;
+  return `<option value="">${esc(anyLabel)}</option>${[...ALL_CATEGORIES].sort(byName).map(opt).join('')}`;
 }
 
 export const resultsMeta = (text) => `<p class="results-meta" aria-live="polite">${esc(text)}</p>`;
