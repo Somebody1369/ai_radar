@@ -184,6 +184,11 @@ ${urls}
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(description)}">
 <meta property="og:locale" content="${lang === 'uk' ? 'uk_UA' : 'en_US'}">
+<meta property="og:image" content="${SITE}/og-${lang}.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="${esc(L.ogAlt)}">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#161616">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">

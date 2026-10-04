@@ -12,6 +12,8 @@ const ukPlural = (n, one, few, many) => {
 const uk = {
   siteName: 'AI Radar',
   tagline: 'Каталог нових AI-інструментів',
+  // Link preview (src/static/og-uk.png, drawn by scripts/og.html).
+  ogAlt: 'AI Radar — AI-інструмент для будь-якої задачі: позначки ціни та реєстрації, нові стартапи в кожній ніші',
   nav: { tools: 'Інструменти', catalog: 'Усі AI-сайти', new: 'Нові стартапи', compare: 'Порівняння' },
   skip: 'Перейти до змісту',
   menu: 'Меню',
@@ -181,6 +183,8 @@ const uk = {
 const en = {
   siteName: 'AI Radar',
   tagline: 'Directory of new AI tools',
+  // Link preview (src/static/og-en.png, drawn by scripts/og.html).
+  ogAlt: 'AI Radar — AI tool for any task: pricing and sign-up labels, the newest startups in every niche',
   nav: { tools: 'Tools', catalog: 'All AI sites', new: 'New startups', compare: 'Compare' },
   skip: 'Skip to content',
   menu: 'Menu',

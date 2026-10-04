@@ -55,7 +55,7 @@ AI Radar — пошук AI-інструментів на основі публі
 - Обмеження й перевірки — у [`API_NOTES.md`](API_NOTES.md).
 
 ## SEO
-Статичні сторінки, згенеровані під час збірки, ЧПУ, унікальні title/description, canonical, hreflang uk/en/x-default, JSON-LD (WebSite, BreadcrumbList, ItemList, WebPage; SearchAction не потрібен — Google прибрав sitelinks search box у 2024), sitemap.xml з альтернативами мов, robots.txt. Комбінації фільтрів отримують `noindex`, canonical веде на базову сторінку. Службові сторінки (404, оболонка непререндерених карток) — `noindex` без canonical і hreflang.
+Статичні сторінки, згенеровані під час збірки, ЧПУ, унікальні title/description, canonical, hreflang uk/en/x-default, картинка превью посилань (og:image 1200×630 українською й англійською, `twitter:card` summary_large_image), JSON-LD (WebSite, BreadcrumbList, ItemList, WebPage; SearchAction не потрібен — Google прибрав sitelinks search box у 2024), sitemap.xml з альтернативами мов, robots.txt. Комбінації фільтрів отримують `noindex`, canonical веде на базову сторінку. Службові сторінки (404, оболонка непререндерених карток) — `noindex` без canonical і hreflang.
 
 ## Технічне рішення
 - HTML, CSS і ванільний JavaScript (ES-модулі), без фреймворків і залежностей.
