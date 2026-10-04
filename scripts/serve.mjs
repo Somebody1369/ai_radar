@@ -1,10 +1,11 @@
-// Tiny static server for local preview that mimics netlify.toml: the /api/fs function, the site-page
+// Tiny static server for local preview that mimics netlify.toml: the /api/fs and /api/fav functions, the site-page
 // shells, 404 pages and the response headers (read from netlify.toml so they cannot drift apart).
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import proxy from '../netlify/functions/fs.mjs';
+import favicons from '../netlify/functions/fav.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -34,11 +35,12 @@ async function file(p) {
   try { const s = await stat(p); return s.isDirectory() ? file(path.join(p, 'index.html')) : p; } catch { return null; }
 }
 
-createServer(async (req, res) => {
+const server = createServer(async (req, res) => {
   try {
     const u = new URL(req.url, 'http://localhost');
-    if (u.pathname === '/api/fs') {
-      const r = await proxy(new Request(u, { method: req.method }));
+    const fn = { '/api/fs': proxy, '/api/fav': favicons }[u.pathname];
+    if (fn) {
+      const r = await fn(new Request(u, { method: req.method }));
       res.writeHead(r.status, Object.fromEntries(r.headers));
       res.end(Buffer.from(await r.arrayBuffer()));
       return;
@@ -59,4 +61,18 @@ createServer(async (req, res) => {
     if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain' });
     res.end('Server error');
   }
-}).listen(PORT, HOST, () => console.log(`AI Radar → http://localhost:${PORT}`));
+});
+
+// 8080 taken (another preview is running): without an explicit PORT, take the next free port.
+let port = PORT;
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE' && !process.env.PORT && port < PORT + 10) {
+    server.close();
+    server.listen(++port, HOST);
+    return;
+  }
+  console.error(e.code === 'EADDRINUSE' ? `✗ Port ${port} is busy: run with another one, e.g. PORT=8081 npm run serve` : e);
+  process.exit(1);
+});
+server.on('listening', () => console.log(`AI Radar → http://localhost:${port}`));
+server.listen(port, HOST);

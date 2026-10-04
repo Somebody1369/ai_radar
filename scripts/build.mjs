@@ -21,9 +21,14 @@ if (!process.env.URL) console.warn(`! URL is not set: canonical links and sitema
 const BUILD_DATE = new Date().toISOString().slice(0, 10);
 
 
-// The only inline script (lets CSS hide the mobile nav before app.js loads). Its hash is whitelisted in
-// the Content-Security-Policy in netlify.toml, so a change here must update that hash too.
-const HEAD_SCRIPT = "document.documentElement.classList.add('js')";
+// Inter without italics: the site has no italic text.
+const FONT_CSS = 'https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&display=swap';
+// The only inline script: the `js` class lets CSS hide the mobile nav before app.js loads, and the font
+// stylesheet is added from here because a script-added stylesheet does not hold back the first paint
+// (as a <link> in <head> did, ~1 s on a slow phone); text appears in the fallback font, then Inter.
+// Its hash is whitelisted in the Content-Security-Policy in netlify.toml, so a change here must update
+// that hash too.
+const HEAD_SCRIPT = `document.documentElement.classList.add('js');var f=document.createElement('link');f.rel='stylesheet';f.href='${FONT_CSS}';f.referrerPolicy='no-referrer';document.head.append(f)`;
 const HEAD_SCRIPT_HASH = `sha256-${createHash('sha256').update(HEAD_SCRIPT).digest('base64')}`;
 if (!(await readFile(path.join(ROOT, 'netlify.toml'), 'utf8')).includes(HEAD_SCRIPT_HASH)) {
   console.error(`✗ netlify.toml CSP must allow the inline script: '${HEAD_SCRIPT_HASH}'`);
@@ -191,10 +196,8 @@ ${urls}
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#161616">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400..700;1,14..32,400..600&display=swap" referrerpolicy="no-referrer">
-<link rel="preconnect" href="https://www.google.com">
+<noscript><link rel="stylesheet" href="${esc(FONT_CSS)}" referrerpolicy="no-referrer"></noscript>
 <link rel="stylesheet" href="${ASSETS}/css/style.css">
 ${ld.map(jsonld).join('\n')}
 </head>
@@ -220,7 +223,7 @@ ${body}
       <p class="muted small">${L.tagline}</p>
     </div>
     <div class="small muted footer-meta">
-      <p>${L.footer.data} · <a href="https://freeserp.ai/docs.php" rel="noopener" target="_blank">freeserp.ai</a></p>
+      <p>${L.footer.data} · <a href="https://freeserp.ai/docs.php" rel="noopener noreferrer" target="_blank">freeserp.ai</a></p>
       <p>${L.footer.built}</p>
       <p>${L.footer.updated(fmtDate(BUILD_DATE, lang))}</p>
     </div>
@@ -251,7 +254,7 @@ function filtersForm(cfg, lang) {
 
   const primary = [];
   if (has('cat')) primary.push(`<label class="field field-niche"><span class="field-label">${F.niche}</span><select name="cat" class="input">${nicheOptions(lang, cfg.preset.ai_categories || '')}</select></label>`);
-  if (has('q')) primary.push(`<label class="field field-q"><span class="field-label">${F.q}</span><span class="input-icon">${icon('search', 'icon icon-sm')}<input class="input" type="search" name="q" placeholder="${esc(cfg.preset.q ? F.qRefinePh : F.qPh)}" autocomplete="off"></span></label>`);
+  if (has('q')) primary.push(`<label class="field field-q"><span class="field-label">${F.q}</span><span class="input-icon">${icon('search', 'icon icon-sm')}<input class="input" type="search" name="q" maxlength="100" placeholder="${esc(cfg.preset.q ? F.qRefinePh : F.qPh)}" autocomplete="off"></span></label>`);
   if (has('pricing')) primary.push(select('pricing', F.pricing, opt('', L.pricing.any) + ['hasfree', 'free', 'freemium', 'trial', 'paid'].map((v) => opt(v, L.pricing[v])).join('')));
   if (has('access')) primary.push(select('access', F.access, opt('', L.access.any) + ['noauth', 'account', 'waitlist'].map((v) => opt(v, L.access[v])).join('')));
   if (has('sort')) primary.push(select('sort', F.sort, sorts.map((v) => opt(v, L.sort[v], v === cfg.sort)).join('')));
@@ -360,7 +363,7 @@ for (const lang of LANGS) {
   <p class="lead">${H.lead}</p>
   <form class="hero-search" action="${localePath(lang, '/sites/')}" method="get" role="search" data-hero-search>
     <label class="hero-niche"><span class="sr-only">${L.filters.niche}</span><select class="input input-lg" name="cat">${nicheOptions(lang)}</select></label>
-    <span class="input-icon">${icon('search', 'icon icon-sm')}<input class="input input-lg" type="search" name="q" placeholder="${esc(H.searchPh)}" aria-label="${esc(H.searchBtn)}" autocomplete="off"></span>
+    <span class="input-icon">${icon('search', 'icon icon-sm')}<input class="input input-lg" type="search" name="q" maxlength="100" placeholder="${esc(H.searchPh)}" aria-label="${esc(H.searchBtn)}" autocomplete="off"></span>
     <button class="btn btn-primary btn-lg">${H.searchBtn}</button>
   </form>
   <div class="hero-chips"><span class="muted small">${H.popular}</span>${popular.map((s) => `<a class="chip" href="${localePath(lang, `/tools/${s}/`)}">${esc(taskName(s, lang))}</a>`).join('')}</div>
@@ -447,7 +450,7 @@ ${listSection(cfg, data, lang)}
   await writePage(lang, '/compare/', layout({
     lang, pathname: '/compare/', title: L.compare.title, description: L.compare.description, active: 'compare', ld: [cmpCrumbs.ld],
     body: `${cmpCrumbs.html}${pageHead(L.compare.h1, L.compare.lead)}
-<form class="cmp-add" data-cmp-add><label class="cmp-niche"><span class="sr-only">${L.filters.niche}</span><select class="input" name="cat">${nicheOptions(lang)}</select></label><span class="input-icon">${icon('plus', 'icon icon-sm')}<input class="input" name="domain" placeholder="${esc(L.compare.addPh)}" aria-label="${esc(L.compare.addPh)}" autocomplete="off" required></span><button class="btn btn-primary">${L.compare.add}</button></form>
+<form class="cmp-add" data-cmp-add><label class="cmp-niche"><span class="sr-only">${L.filters.niche}</span><select class="input" name="cat">${nicheOptions(lang)}</select></label><span class="input-icon">${icon('plus', 'icon icon-sm')}<input class="input" name="domain" maxlength="253" placeholder="${esc(L.compare.addPh)}" aria-label="${esc(L.compare.addPh)}" autocomplete="off" required></span><button class="btn btn-primary">${L.compare.add}</button></form>
 <p class="small muted" data-cmp-note aria-live="polite"></p>
 <p class="small muted" data-cmp-restore hidden></p>
 <div data-compare-view></div>`,

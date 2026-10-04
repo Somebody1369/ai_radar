@@ -10,6 +10,7 @@
 
 # /api/fs is served by netlify/functions/fs.mjs (config.path): an allow-listed proxy, because FreeSerp
 # duplicates its CORS header and browsers cannot call it directly.
+# /api/fav is served by netlify/functions/fav.mjs: same-origin favicons (Google's, a blank image for none).
 
 # Site pages that were not prerendered are rendered in the browser from a shell page.
 [[redirects]]
@@ -33,7 +34,7 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# The script hash is for the one inline script in <head> that adds the `js` class (scripts/build.mjs).
+# The script hash is for the one inline script in <head> (the `js` class and the font stylesheet, scripts/build.mjs).
 # JSON-LD blocks are data, not scripts, so CSP does not apply to them.
 [[headers]]
   for = "/*"
@@ -42,4 +43,4 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-Frame-Options = "DENY"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'sha256-Du+OJKJSbdUgz5nrHeWWINvez6XKDDU/tyj/5c2uvwo='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://www.google.com https://*.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'sha256-KmXsvjVevlabfWv5ZsjzCXxO1n4KKh3FBG31JGZdzUE='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"

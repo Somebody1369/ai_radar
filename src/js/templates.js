@@ -62,9 +62,10 @@ const ICON_PATHS = {
 export const icon = (name, cls = 'icon') =>
   `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
 
-// No referrer: Google needs only the domain, not which page of ours the visitor is on.
+// Through our own /api/fav (netlify/functions/fav.mjs): a domain without an icon is a blank image there,
+// not a 404 in the console, and Google does not see the visitors.
 export const favicon = (domain, size = 32) =>
-  `<span class="fav" style="--s:${size}px" data-letter="${esc(domain[0]?.toUpperCase() || '?')}"><img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&amp;sz=64" alt="" width="${size}" height="${size}" loading="lazy" decoding="async" referrerpolicy="no-referrer"></span>`;
+  `<span class="fav" style="--s:${size}px" data-letter="${esc(domain[0]?.toUpperCase() || '?')}"><img src="/api/fav?d=${encodeURIComponent(domain)}" alt="" width="${size}" height="${size}" loading="lazy" decoding="async"></span>`;
 
 export const sitePath = (lang, domain) => localePath(lang, `/site/${encodeURIComponent(domain)}/`);
 
@@ -109,7 +110,7 @@ export function card(s, lang) {
     <span class="muted small">${L.card.live} ${fmtDate(s.wentLive, lang)}</span>
     <div class="card-actions">
       <button type="button" class="btn btn-sm btn-ghost" data-compare="${esc(s.domain)}" aria-pressed="false">${icon('plus', 'icon icon-xs')}<span>${L.card.compare}</span></button>
-      <a class="btn btn-sm btn-ghost" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener nofollow">${L.card.open}${icon('arrow', 'icon icon-xs')}</a>
+      <a class="btn btn-sm btn-ghost" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer nofollow">${L.card.open}${icon('arrow', 'icon icon-xs')}</a>
     </div>
   </div>
 </article>`;
@@ -169,7 +170,7 @@ export function siteDetail(s, lang) {
       <p class="site-sub">${esc(s.title)}</p>
     </div>
     <div class="site-actions">
-      <a class="btn btn-primary" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener nofollow">${S.visit}${icon('arrow', 'icon icon-sm')}</a>
+      <a class="btn btn-primary" href="${esc(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer nofollow">${S.visit}${icon('arrow', 'icon icon-sm')}</a>
       <button type="button" class="btn btn-ghost" data-compare="${esc(s.domain)}" aria-pressed="false">${icon('plus', 'icon icon-sm')}<span>${L.card.compare}</span></button>
     </div>
   </div>

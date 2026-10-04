@@ -10,8 +10,12 @@ import { readState, writeState, isDeep, hasQuery, defaultSort, effectiveSort, to
 const lang = document.body.dataset.lang === 'en' ? 'en' : 'uk';
 const L = t(lang);
 setLatest(document.body.dataset.latest);
-// Errors shown to the visitor: a 429 from the proxy's rate limit is not "FreeSerp is down".
-const errorText = (e) => (e?.status === 429 ? L.list.busy : L.list.error);
+// Errors shown to the visitor: a 429 from the proxy's rate limit is not "FreeSerp is down", and
+// neither is the visitor's own connection being down.
+const errorText = (e) => {
+  if (e?.status === 429) return L.list.busy;
+  return navigator.onLine === false ? L.list.offline : L.list.error;
+};
 
 // ---------- response cache: memory + sessionStorage (10 min) ----------
 // Entries are already slim (page text is classified and dropped before caching).
