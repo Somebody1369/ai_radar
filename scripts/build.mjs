@@ -5,16 +5,19 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { TASKS, NICHES, BUILDERS, TLDS, PAGE_SIZE, slugify, isDate } from '../src/js/config.js';
+import { TASKS, NICHES, BUILDERS, TLDS, slugify, isDate } from '../src/js/config.js';
 import { search, stats, setCache } from '../src/js/api.js';
 import { LANGS, t, taskName, taskDesc, categoryName, fmtDate, fmtNum, localePath } from '../src/js/i18n.js';
-import { esc, icon, grid, pagination, resultsMeta, siteDetail, sitePath, message, nicheOptions, cardMini, setLatest } from '../src/js/templates.js';
+import { esc, icon, grid, pagination, shownMeta, siteDetail, sitePath, message, nicheOptions, cardMini, setLatest } from '../src/js/templates.js';
 import { toApiParams, pageCount } from '../src/js/listing.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
 const CACHE_DIR = path.join(ROOT, '.cache');
+// Netlify sets URL. Anywhere else canonical links, hreflang and the sitemap would silently point at
+// localhost, so say it loudly.
 const SITE = (process.env.URL || 'http://localhost:8080').replace(/\/$/, '');
+if (!process.env.URL) console.warn(`! URL is not set: canonical links and sitemap.xml point at ${SITE}`);
 const BUILD_DATE = new Date().toISOString().slice(0, 10);
 
 
@@ -61,7 +64,8 @@ async function safe(label, fn) {
 }
 
 const LIST = {
-  catalog: { preset: { ai_startups: 1 }, sort: 'dr', base: '/sites/', filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'dates', 'flags'] },
+  // wideQuery: a typed query searches all AI sites, not just ai_startups=1 (listing.toApiParams).
+  catalog: { preset: { ai_startups: 1 }, sort: 'dr', base: '/sites/', wideQuery: true, filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'dates', 'flags'] },
   task: (task) => ({ preset: { ...task.params }, sort: task.params.q ? 'relevance' : 'dr', widenQ: task.widen, base: `/tools/${task.slug}/`, filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'dr', 'flags'] }),
   // On niche pages the niche select switches to another niche page instead of filtering in place.
   niche: (name) => ({ preset: { ai_categories: name }, sort: 'dr', base: `/niche/${slugify(name)}/`, nicheNav: true, filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'flags'] }),
@@ -272,9 +276,9 @@ function listSection(cfg, data, lang) {
   else {
     const pages = pageCount(data.total);
     const href = (n) => `${localePath(lang, cfg.base)}?page=${n}`;
-    inner = resultsMeta(L.list.shown(1, Math.min(PAGE_SIZE, data.total), fmtNum(data.total, lang))) + grid(data.results, lang) + pagination(1, pages, href, lang);
+    inner = shownMeta(lang, 1, data) + grid(data.results, lang) + pagination(1, pages, href, lang);
   }
-  return `<section class="list" aria-labelledby="results-h" data-list="${esc(JSON.stringify({ preset: cfg.preset, sort: cfg.sort, widenQ: cfg.widenQ, base: localePath(lang, cfg.base), nicheNav: Boolean(cfg.nicheNav) }))}"${data ? '' : ' data-empty'}>
+  return `<section class="list" aria-labelledby="results-h" data-list="${esc(JSON.stringify({ preset: cfg.preset, sort: cfg.sort, widenQ: cfg.widenQ, wideQuery: Boolean(cfg.wideQuery), base: localePath(lang, cfg.base), nicheNav: Boolean(cfg.nicheNav) }))}"${data ? '' : ' data-empty'}>
   <h2 class="sr-only" id="results-h">${L.list.results}</h2>
   ${filtersForm(cfg, lang)}
   <div class="results" data-results>${inner}</div>
@@ -454,7 +458,8 @@ ${listSection(cfg, data, lang)}
 
 // ---------- sitemap, robots, assets ----------
 
-const urlEntry = (p, lang) => `<url><loc>${SITE + localePath(lang, p)}</loc><lastmod>${BUILD_DATE}</lastmod>${LANGS.map((l) => `<xhtml:link rel="alternate" hreflang="${l}" href="${SITE + localePath(l, p)}"/>`).join('')}</url>`;
+// Same alternates as the pages' own <link rel="alternate"> tags, x-default included.
+const urlEntry = (p, lang) => `<url><loc>${SITE + localePath(lang, p)}</loc><lastmod>${BUILD_DATE}</lastmod>${LANGS.map((l) => `<xhtml:link rel="alternate" hreflang="${l}" href="${SITE + localePath(l, p)}"/>`).join('')}<xhtml:link rel="alternate" hreflang="x-default" href="${SITE + p}"/></url>`;
 await writeFile(path.join(DIST, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
 ${sitemap.flatMap((p) => LANGS.map((l) => urlEntry(p, l))).join('\n')}

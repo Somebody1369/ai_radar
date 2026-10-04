@@ -1,5 +1,5 @@
 // Thin FreeSerp client shared by the browser and the build script.
-import { API_BASE, API_PROXY, API_IDENTITY, BLOCKLIST, NOT_A_PRODUCT, CONTENT_MAX } from './config.js';
+import { API_BASE, API_PROXY, API_IDENTITY, BLOCKLIST, SAFETY_TOOL, ADULT_MAKER, NOT_A_PRODUCT, CONTENT_MAX } from './config.js';
 import { classify, lookalike } from './classify.js';
 
 // Optional cache injected by the environment: { get(key), set(key, value) }. It keeps what the
@@ -8,7 +8,7 @@ import { classify, lookalike } from './classify.js';
 let cache = null;
 export const setCache = (c) => { cache = c; };
 // Part of every key: bump it when the cached shape changes, so old entries are never read back.
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 
 export class ApiError extends Error {
   constructor(message, status = 0) {
@@ -38,7 +38,7 @@ async function getJson(params, { signal, retries = 1 } = {}) {
     } catch (e) {
       if (e.name === 'AbortError') throw e;
       lastErr = e;
-      if (e.status === 429) break; // rate limited: an instant retry only makes it worse
+      if (e.status >= 400 && e.status < 500) break; // bad params or rate limited: a retry only repeats it
       if (attempt < retries) await new Promise((r) => setTimeout(r, 600));
     }
   }
@@ -56,7 +56,11 @@ async function cached(params, opts, build) {
 }
 
 // Text-only on purpose: the API's category=betting/casino has false positives (e.g. favicon.io).
-export const isBlocked = (s) => BLOCKLIST.test(`${s.domain} ${s.title || ''} ${s.ai_summary || ''}`);
+// Moderation and child-safety tools mention the same words and stay (config.SAFETY_TOOL).
+export function isBlocked(s) {
+  const text = `${s.domain} ${s.title || ''} ${s.ai_summary || ''}`;
+  return BLOCKLIST.test(text) && !(SAFETY_TOOL.test(s.ai_summary || '') && !ADULT_MAKER.test(text));
+}
 // Not a tool (agency, portfolio, empty or template page): left out of lists, still found by lookup().
 export function isNoise(s) {
   const summary = s.ai_summary || '';
@@ -82,16 +86,19 @@ export function normalize(r) {
     firstSeen: r.first_seen || null,
     tld: r.tld || null,
     server: r.webserver || null,
-    lookalike: lookalike(r.domain),
-    meta: classify(r),
+    lookalike: lookalike(r.domain, `${r.title || ''} ${r.ai_summary || ''}`),
+    // The proxy classifies the page text itself and sends only the verdict (netlify/functions/fs.mjs);
+    // the build calls the API directly and classifies here.
+    meta: r.radar || classify(r),
   };
 }
 
 export function search(params, opts) {
   return cached({ content: 1, content_max: CONTENT_MAX, ...params }, opts, (data) => {
     const raw = data.results || [];
-    const results = raw.filter((r) => !isBlocked(r) && !isNoise(r)).map(normalize);
-    return { total: data.total || 0, results, hidden: raw.length - results.length };
+    const hide = (r) => isBlocked(r) || isNoise(r);
+    // Hidden domains, not a count: the deep scan merges two answers and must not count a site twice.
+    return { total: data.total || 0, results: raw.filter((r) => !hide(r)).map(normalize), hidden: raw.filter(hide).map((r) => r.domain) };
   });
 }
 

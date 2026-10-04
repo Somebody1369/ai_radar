@@ -1,5 +1,5 @@
 // Isomorphic HTML templates: the build script prerenders with them, the browser re-renders with them.
-import { NICHES, ALL_CATEGORIES, AI_BUILDERS, FIRST_SEEN_EPOCH, slugify } from './config.js';
+import { NICHES, ALL_CATEGORIES, AI_BUILDERS, FIRST_SEEN_EPOCH, PAGE_SIZE, slugify } from './config.js';
 import { t, categoryName, fmtDate, fmtNum, localePath } from './i18n.js';
 import { lookalike } from './classify.js';
 
@@ -22,7 +22,10 @@ const lookalikeBadge = (s, lang, focusable = true) => (s.lookalike ? whyBadge('b
 
 // ai_source mixes builder ids (lovable) with raw generator tags ("gen:gridsome v0.7.23").
 // `not_ai` is the API's "no builder detected" marker, not something to show.
-const builderName = (src, lang) => (src && src !== 'not_ai' ? t(lang).builders[src] || src.replace(/^gen:/, '') : '—');
+const builderName = (src, lang) => {
+  if (!src || src === 'not_ai') return '—';
+  return Object.hasOwn(t(lang).builders, src) ? t(lang).builders[src] : src.replace(/^gen:/, '');
+};
 
 const ICON_PATHS = {
   music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
@@ -229,5 +232,14 @@ export function nicheOptions(lang, selected = '', anyLabel = t(lang).filters.all
 }
 
 export const resultsMeta = (text) => `<p class="results-meta">${esc(text)}</p>`;
+
+// "Showing 1–24 of N" counts the API's positions, so pages line up; sites the quality filters took out
+// of this page are named rather than silently missing from the grid. `data` comes from api.search().
+export function shownMeta(lang, page, data) {
+  const L = t(lang).list;
+  const from = (page - 1) * PAGE_SIZE;
+  const text = L.shown(from + 1, from + data.results.length + data.hidden.length, fmtNum(data.total, lang));
+  return resultsMeta(data.hidden.length ? `${text} · ${L.hidden(data.hidden.length)}` : text);
+}
 
 export { fmtNum };

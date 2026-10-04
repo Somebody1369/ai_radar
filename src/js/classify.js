@@ -16,8 +16,9 @@ const RX = {
   // Explicit "free" phrasing. A bare "free" only counts when it is not part of trial/shipping/etc.
   free: new RegExp(`\\b(?:100% free|free forever|completely free|totally free|absolutely free|free to use|free plan|free tier|free version|free account|free online|it'?s free|free credits?|free download|no cost)\\b|\\b(?:for free|start (?:for )?free|try (?:it )?(?:for )?free|get started (?:for )?free)\\b${NOT_TRIAL}|${ZERO}|${NOT_PRICE}\\bfree\\b${NOT_TRIAL}`, 'gi'),
   trial: /\b((?:free )?\d+[- ]day (?:free )?trial|free trial|trial period|(?:try (?:it )?)?free for \d+ (?:days?|weeks?|months?)|free \d+[- ]?(?:days?|weeks?|months?))\b/gi,
-  // Strong paid signals: a non-zero price or explicit billing words.
-  paid: new RegExp(`(${PRICE}|\\b\\d+(?:[.,]\\d+)?\\s?(?:usd|eur|uah)\\b|\\bper (?:user|seat)\\b|\\b(?:subscription|paid plans?|pro plan|upgrade to pro|buy now|billed (?:monthly|annually|yearly)|one-time payment|lifetime deal)\\b)`, 'gi'),
+  // Strong paid signals: a non-zero price or explicit billing words. "No subscription needed" and
+  // "credits rather than a subscription" deny it (suno.com showed «subscription» as its evidence).
+  paid: new RegExp(`(${PRICE}|\\b\\d+(?:[.,]\\d+)?\\s?(?:usd|eur|uah)\\b|\\bper (?:user|seat)\\b|\\b(?:(?<!\\b(?:no|without|not|rather than|instead of)(?: a)?(?: monthly| recurring)? )subscription|paid plans?|pro plan|upgrade to pro|buy now|billed (?:monthly|annually|yearly)|one-time payment|lifetime deal)\\b)`, 'gi'),
   // Weak signals: a "Pricing" menu link, "premium", "subscribe" (not to a newsletter), "/month"…
   // Most freemium sites have them, so one weak signal only confirms a free tier (→ freemium);
   // without any "free" it takes two different weak signals to call a site paid.
@@ -73,14 +74,15 @@ export function classify(site) {
 }
 
 // A domain named after a famous brand that is not one of its official domains (config.BRANDS):
-// { brand, token, official } for the "unofficial site" label, or null.
+// { brand, token, official } for the "unofficial site" label, or null. `text` (title + summary) is
+// needed for brands with a `context`; without it (a compare column still loading) they never match.
 const OFFICIAL = BRANDS.flatMap((b) => b.official);
 const BRAND_RX = BRANDS.map((b) => ({ ...b, rx: b.match || new RegExp(b.token) }));
-export function lookalike(domain) {
+export function lookalike(domain, text = '') {
   const d = String(domain || '').toLowerCase();
   if (OFFICIAL.some((o) => d === o || d.endsWith(`.${o}`))) return null;
   const name = d.split('.').slice(0, -1).join('.').replace(/-/g, '');
-  const b = BRAND_RX.find((x) => x.rx.test(name));
+  const b = BRAND_RX.find((x) => x.rx.test(name) && (!x.context || x.context.test(text)));
   return b ? { brand: b.name, token: b.token, official: b.official[0] } : null;
 }
 

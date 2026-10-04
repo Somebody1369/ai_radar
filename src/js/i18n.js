@@ -148,8 +148,13 @@ const uk = {
   newIn: { title: 'Нове в категорії', range: (a, b) => (a === b ? `Останні появи в індексі: ${a}` : `Останні появи в індексі: ${a} – ${b}`), more: 'Усі за датою появи' },
   list: {
     shown: (a, b, total) => `Показано ${a}–${b} з ${total}`,
+    hidden: (n) => `${n} приховано (NSFW, казино, агентства, порожні сторінки)`,
     deep: (n, scanned) => `Знайдено ${n} серед перших ${scanned} результатів (ціна й доступ визначаються за текстом сторінки)`,
     empty: 'Нічого не знайдено. Спробуйте прибрати частину фільтрів.',
+    emptyQuery: 'За цим запитом нічого не знайдено. Спробуйте інше слово.',
+    nothing: 'Нічого не знайдено.',
+    latin: 'Нічого не знайдено: FreeSerp шукає за англійським текстом сторінок. Спробуйте англійською, наприклад «logo generator», або оберіть задачу.',
+    exact: 'Сайт за цією адресою',
     deepEmpty: 'Серед перевірених сайтів збігів немає. Ознаки ціни й доступу є не на кожній сторінці — спробуйте прибрати фільтр «Доступ» або «Ціна».',
     results: 'Результати',
     error: 'FreeSerp зараз не відповідає. Спробуйте ще раз за хвилину.',
@@ -312,8 +317,13 @@ const en = {
   newIn: { title: 'New in this category', range: (a, b) => (a === b ? `Latest additions to the index: ${a}` : `Latest additions to the index: ${a} – ${b}`), more: 'All by date added' },
   list: {
     shown: (a, b, total) => `Showing ${a}–${b} of ${total}`,
+    hidden: (n) => `${n} hidden (NSFW, gambling, agencies, empty pages)`,
     deep: (n, scanned) => `${n} found among the first ${scanned} results (pricing and access are inferred from page text)`,
     empty: 'Nothing found. Try removing some filters.',
+    emptyQuery: 'Nothing found for this query. Try another word.',
+    nothing: 'Nothing found.',
+    latin: 'Nothing found: FreeSerp searches the English text of pages. Try English words, e.g. “logo generator”, or pick a task.',
+    exact: 'The site at this address',
     deepEmpty: 'No matches among the scanned sites. Not every page states its pricing or access — try removing the Access or Pricing filter.',
     results: 'Results',
     error: 'FreeSerp is not responding. Please try again in a minute.',
@@ -363,8 +373,9 @@ const TASK_NAMES = {
   interior: ['Інтер’єр і архітектура', 'Interior & architecture', 'Дизайн приміщень, рендери', 'Room design, renders'],
 };
 
-export const taskName = (slug, lang) => TASK_NAMES[slug]?.[lang === 'uk' ? 0 : 1] || slug;
-export const taskDesc = (slug, lang) => TASK_NAMES[slug]?.[lang === 'uk' ? 2 : 3] || '';
+// Own keys only: a slug or category from a URL may be "constructor" or "toString".
+export const taskName = (slug, lang) => (Object.hasOwn(TASK_NAMES, slug) ? TASK_NAMES[slug][lang === 'uk' ? 0 : 1] : slug);
+export const taskDesc = (slug, lang) => (Object.hasOwn(TASK_NAMES, slug) ? TASK_NAMES[slug][lang === 'uk' ? 2 : 3] : '');
 
 const CATEGORY_UK = {
   'AI Agents & Autonomous': 'AI-агенти',
@@ -430,7 +441,7 @@ const CATEGORY_UK = {
   Gaming: 'Ігри',
 };
 
-export const categoryName = (c, lang) => (lang === 'uk' ? CATEGORY_UK[c] || c : c);
+export const categoryName = (c, lang) => (lang === 'uk' && Object.hasOwn(CATEGORY_UK, c) ? CATEGORY_UK[c] : c);
 
 export const t = (lang) => STRINGS[lang] || STRINGS.uk;
 

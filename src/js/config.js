@@ -29,29 +29,35 @@ export const isDate = (v) => {
 // Task finder. `params` go straight to the API; tasks with `q` sort by relevance by default,
 // because sorting a text match by DR surfaces big unrelated sites. `widen` is the keyword used when
 // the visitor switches a niche-based task to "all niches" (AI startups matching the word, by relevance).
+// `words` route a typed query to the task: FreeSerp searches English page text only, so "генератор
+// лого" finds nothing and has to open the logo task instead. Entries are word stems (uk + en); a stem
+// ending in "." must be the whole word ("біт." is not "біткоїн"). `topic` says what the task is about,
+// `action` only adds weight, so "video editor" goes to editing and "video" alone to generation.
 export const TASKS = [
-  { slug: 'music', icon: 'music', params: { ai_categories: 'Audio & Music', q: 'music' } },
-  { slug: 'audio', icon: 'audio', params: { ai_categories: 'Audio & Music' }, widen: 'audio' },
-  { slug: 'voice-over', icon: 'mic', params: { ai_categories: 'Voice & Text-to-Speech' }, widen: 'text to speech' },
-  { slug: 'voice-cloning', icon: 'copy', params: { ai_categories: 'Voice Cloning' }, widen: 'voice cloning' },
-  { slug: 'transcription', icon: 'captions', params: { ai_categories: 'Transcription & Speech-to-Text' }, widen: 'transcription' },
-  { slug: 'video-generation', icon: 'video', params: { ai_categories: 'Video Generation' }, widen: 'video generator' },
-  { slug: 'video-editing', icon: 'scissors', params: { ai_categories: 'Video Editing' }, widen: 'video editor' },
-  { slug: 'image-generation', icon: 'image', params: { ai_categories: 'Image Generation' }, widen: 'image generator' },
-  { slug: 'upscale', icon: 'maximize', params: { ai_categories: 'Image Editing & Enhancement', q: 'upscale' } },
-  { slug: 'retouch', icon: 'sparkles', params: { ai_categories: 'Image Editing & Enhancement', q: 'retouch' } },
-  { slug: 'background-removal', icon: 'eraser', params: { ai_categories: 'Background Removal' }, widen: 'background remover' },
-  { slug: 'logo', icon: 'hexagon', params: { ai_categories: 'Logo & Branding', q: 'logo' } },
-  { slug: 'branding', icon: 'palette', params: { ai_categories: 'Logo & Branding' }, widen: 'branding' },
-  { slug: 'favicon', icon: 'favicon', params: { q: 'favicon generator' } },
-  { slug: 'icons', icon: 'grid', params: { category: 'ai', q: 'icon generator' } },
-  { slug: 'avatars', icon: 'user', params: { ai_categories: 'AI Avatars & Headshots' }, widen: 'ai avatar' },
-  { slug: '3d', icon: 'box', params: { ai_categories: '3D & Modeling' }, widen: '3d model' },
-  { slug: 'ui-design', icon: 'layout', params: { ai_categories: 'Design & UI' }, widen: 'ui design' },
-  { slug: 'copywriting', icon: 'pen', params: { ai_categories: 'Copywriting & Marketing' }, widen: 'copywriting' },
-  { slug: 'translation', icon: 'languages', params: { ai_categories: 'Translation & Language' }, widen: 'translation' },
-  { slug: 'interior', icon: 'home', params: { ai_categories: 'Interior & Architecture' }, widen: 'interior design' },
+  { slug: 'music', icon: 'music', params: { ai_categories: 'Audio & Music', q: 'music' }, words: { topic: ['музик', 'пісн', 'пісен', 'мелоді', 'біт.', 'біти.', 'music', 'song', 'melod', 'beat'] } },
+  { slug: 'audio', icon: 'audio', params: { ai_categories: 'Audio & Music' }, widen: 'audio', words: { topic: ['аудіо', 'звук', 'подкаст', 'стем', 'audio', 'sound', 'podcast', 'stem'] } },
+  { slug: 'voice-over', icon: 'mic', params: { ai_categories: 'Voice & Text-to-Speech' }, widen: 'text to speech', words: { topic: ['озвуч', 'диктор', 'голос', 'tts.', 'voice', 'speech', 'narrat'], action: ['текст', 'text'] } },
+  { slug: 'voice-cloning', icon: 'copy', params: { ai_categories: 'Voice Cloning' }, widen: 'voice cloning', words: { topic: ['клон', 'clon'], action: ['голос', 'voice'] } },
+  { slug: 'transcription', icon: 'captions', params: { ai_categories: 'Transcription & Speech-to-Text' }, widen: 'transcription', words: { topic: ['транскри', 'субтитр', 'розшифр', 'transcri', 'subtitl', 'caption', 'stt.'], action: ['аудіо', 'відео', 'audio', 'video', 'текст', 'text', 'speech'] } },
+  { slug: 'video-generation', icon: 'video', params: { ai_categories: 'Video Generation' }, widen: 'video generator', words: { topic: ['відео', 'ролик', 'video'], action: ['текст', 'text', 'prompt'] } },
+  { slug: 'video-editing', icon: 'scissors', params: { ai_categories: 'Video Editing' }, widen: 'video editor', words: { topic: ['відео', 'ролик', 'монтаж', 'video'], action: ['монтаж', 'редаг', 'нарізк', 'edit', 'cut.', 'trim'] } },
+  { slug: 'image-generation', icon: 'image', params: { ai_categories: 'Image Generation' }, widen: 'image generator', words: { topic: ['зображ', 'картин', 'малюн', 'ілюстр', 'арт.', 'image', 'picture', 'illustrat', 'art.'], action: ['намал', 'draw', 'текст', 'text', 'prompt'] } },
+  { slug: 'upscale', icon: 'maximize', params: { ai_categories: 'Image Editing & Enhancement', q: 'upscale' }, words: { topic: ['апскейл', 'роздільн', 'якіст', 'upscal', 'resolution', 'enhanc', 'quality'], action: ['покращ', 'збільш', 'фото', 'photo', 'image', 'improv'] } },
+  { slug: 'retouch', icon: 'sparkles', params: { ai_categories: 'Image Editing & Enhancement', q: 'retouch' }, words: { topic: ['ретуш', 'портрет', 'шкір', 'retouch', 'portrait', 'skin'], action: ['фото', 'обличч', 'photo', 'face'] } },
+  { slug: 'background-removal', icon: 'eraser', params: { ai_categories: 'Background Removal' }, widen: 'background remover', words: { topic: ['фон.', 'фону.', 'фоном.', 'background', 'bg.'], action: ['видал', 'прибр', 'прозор', 'фото', 'remov', 'eras', 'transparent', 'photo', 'image'] } },
+  { slug: 'logo', icon: 'hexagon', params: { ai_categories: 'Logo & Branding', q: 'logo' }, words: { topic: ['лого', 'logo'], action: ['дизайн', 'design'] } },
+  { slug: 'branding', icon: 'palette', params: { ai_categories: 'Logo & Branding' }, widen: 'branding', words: { topic: ['бренд', 'айдентик', 'назв', 'brand', 'identity', 'naming'], action: ['name.', 'names.'] } },
+  { slug: 'favicon', icon: 'favicon', params: { q: 'favicon generator' }, words: { topic: ['фавікон', 'favicon'] } },
+  { slug: 'icons', icon: 'grid', params: { category: 'ai', q: 'icon generator' }, words: { topic: ['ікон', 'icon'] } },
+  { slug: 'avatars', icon: 'user', params: { ai_categories: 'AI Avatars & Headshots' }, widen: 'ai avatar', words: { topic: ['аватар', 'хедшот', 'avatar', 'headshot'], action: ['фото', 'профіл', 'photo', 'profile'] } },
+  { slug: '3d', icon: 'box', params: { ai_categories: '3D & Modeling' }, widen: '3d model', words: { topic: ['3d.', '3д.', 'тривимір'], action: ['модел', 'рендер', 'сцен', 'текстур', 'model', 'render', 'scene', 'textur'] } },
+  { slug: 'ui-design', icon: 'layout', params: { ai_categories: 'Design & UI' }, widen: 'ui design', words: { topic: ['інтерфейс', 'макет', 'мокап', 'прототип', 'ui.', 'ux.', 'interface', 'mockup', 'wirefram', 'prototyp'], action: ['дизайн', 'design', 'web'] } },
+  { slug: 'copywriting', icon: 'pen', params: { ai_categories: 'Copywriting & Marketing' }, widen: 'copywriting', words: { topic: ['копірайт', 'реклам', 'слоган', 'copywrit', 'copy.', 'slogan', 'ad.', 'ads.'], action: ['текст', 'маркет', 'пост', 'text', 'market', 'post'] } },
+  { slug: 'translation', icon: 'languages', params: { ai_categories: 'Translation & Language' }, widen: 'translation', words: { topic: ['переклад', 'дубляж', 'translat', 'dubbing'], action: ['текст', 'документ', 'text', 'document'] } },
+  { slug: 'interior', icon: 'home', params: { ai_categories: 'Interior & Architecture' }, widen: 'interior design', words: { topic: ['інтерєр', 'інтерьер', 'архітект', 'кімнат', 'ремонт', 'interior', 'architect', 'room'], action: ['дизайн', 'рендер', 'design', 'render'] } },
 ];
+// Words that say nothing about the task ("free online AI logo generator" is about logos), same notation.
+export const QUERY_FILLER = ['ai.', 'ші.', 'штучн', 'інтелект', 'нейро', 'artificial', 'intelligence', 'онлайн', 'online', 'free', 'безкоштовн', 'best', 'найкращ', 'інструмент', 'tool', 'сервіс', 'service', 'app.', 'apps.', 'додат', 'програм', 'сайт', 'site', 'website', 'генер', 'generat', 'створ', 'creat', 'maker', 'make.', 'зроб', 'для.', 'for.', 'the.', 'a.', 'an.', 'of.', 'і.', 'й.', 'та.', 'and.', 'з.', 'із.', 'with.', 'в.', 'у.', 'на.', 'to.', 'як.', 'how.', 'мені.', 'треба.', 'потрібн', 'хочу.', 'my.', 'мій.'];
 
 // Niches the API counts as genuine AI startups (ai_startups=1). Each gets an SEO page.
 export const NICHES = [
@@ -101,6 +107,11 @@ export const TLDS = ['ai', 'io', 'com', 'app', 'dev', 'co', 'so', 'tech', 'net',
 // Unambiguous terms match anywhere, also glued inside a domain (ainudegenerator.app, nudeai.com).
 // Ambiguous ones need a word start: `sex\w*` catches sexhd88.live but not essex.ac.uk.
 export const BLOCKLIST = /nsfw|porn|nude|nudif|undress|hentai|onlyfans|\b(xxx\w*|naked|sex\w*|erotic\w*|uncensored|casino\w*|betting|gambl\w*|gamstop)\b|domain is expired|domain (is )?for sale|buy this domain/i;
+// Except tools that fight such content: a summary that describes moderation or detection ("removes
+// spam, NSFW content", "CSAM detection") keeps the site, unless the text also describes generating it.
+// Checked on 1 129 sites (597 blocked, 2026-10-04): only telegram-bot.app and safer.io came back.
+export const SAFETY_TOOL = /\b(?:content moderation|moderat(?:e|es|ing) (?:content|images|chats?|groups?|communities)|moderation (?:api|service|tool|platform|bot|solution)s?|(?:nsfw|nudity|explicit|adult|csam) (?:content |image )?(?:detection|detector|classifier|classification|filter(?:ing)?|scanning)|detects? (?:nudity|nsfw|explicit)|child (?:safety|protection|sexual abuse)|csam|trust (?:and|&) safety)\b/i;
+export const ADULT_MAKER = /undress|nudif|uncensored|porn|hentai|onlyfans|\bxxx|deepnude|ai girlfriend|\b(?:nsfw|nude|adult|sex\w*) (?:ai|image|video|art|photo|chat|generat\w*|girlfriend|companion|roleplay|stories|games?)\b|gambl|casino|betting/i;
 
 // Real sites that are not tools: agencies and consultancies, portfolios and personal pages, unfinished
 // templates. Judged by the API's own summary, which says what the site is ("X is a Boston-based design
@@ -119,20 +130,22 @@ export const NOT_A_PRODUCT = {
 // them (chatgptxt.com "Chat GPT login", mms-deepseek.com "官方网站", CapCut MOD APKs), and they
 // often rank first, so such domains get an "unofficial" label. Ambiguous words (gemini, copilot,
 // runway, jasper…) are left out or narrowed (runwayml, leonardoai; "canvas" is not Canva).
+// Names that are also ordinary words or first names need `context`: the site's title or summary must
+// talk about the AI product (claude-leblanc.com is a wine merchant, anthropic.in a WiFi company).
 export const BRANDS = [
   { name: 'ChatGPT', token: 'chatgpt', official: ['chatgpt.com', 'openai.com'] },
   { name: 'OpenAI', token: 'openai', official: ['openai.com', 'openai.fund'] },
-  { name: 'Claude', token: 'claude', official: ['claude.ai', 'claude.com', 'anthropic.com'] },
-  { name: 'Anthropic', token: 'anthropic', official: ['anthropic.com'] },
+  { name: 'Claude', token: 'claude', official: ['claude.ai', 'claude.com', 'anthropic.com'], context: /\bclaude[\s-]?(?:ai|code|chat|opus|sonnet|haiku|fable|\d)\b|anthropic/i },
+  { name: 'Anthropic', token: 'anthropic', official: ['anthropic.com'], context: /\bclaude\b|anthropic(?:'s)? (?:ai|pbc)\b/i },
   { name: 'Midjourney', token: 'midjourney', official: ['midjourney.com'] },
-  { name: 'Perplexity', token: 'perplexity', official: ['perplexity.ai'] },
+  { name: 'Perplexity', token: 'perplexity', official: ['perplexity.ai'], context: /perplexity[\s-]?(?:ai|pro)\b|perplexity\.ai/i },
   { name: 'DeepSeek', token: 'deepseek', official: ['deepseek.com'] },
-  { name: 'Grok', token: 'grok', official: ['grok.com', 'x.ai'] },
+  { name: 'Grok', token: 'grok', official: ['grok.com', 'x.ai'], context: /\bgrok\b[^.]*\bai\b|\bgrok[\s-]?(?:imagine|bot|chat|token|\d)|\bx\.?ai\b|\belon\b/i },
   { name: 'ElevenLabs', token: 'elevenlabs', official: ['elevenlabs.io'] },
   { name: 'Suno', token: 'suno', official: ['suno.com', 'suno.ai'] },
   { name: 'HeyGen', token: 'heygen', official: ['heygen.com'] },
   { name: 'Synthesia', token: 'synthesia', official: ['synthesia.io'] },
-  { name: 'Ideogram', token: 'ideogram', official: ['ideogram.ai'] },
+  { name: 'Ideogram', token: 'ideogram', official: ['ideogram.ai'], context: /ideogram[\s-]?(?:ai|\.ai|\d)\b/i },
   { name: 'Leonardo.Ai', token: 'leonardoai', official: ['leonardo.ai'] },
   { name: 'Runway', token: 'runwayml', official: ['runwayml.com'] },
   { name: 'Canva', token: 'canva', match: /canva(?!s)/, official: ['canva.com'] },
@@ -141,4 +154,3 @@ export const BRANDS = [
 ];
 
 export const slugify = (s) => s.toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-export const nicheBySlug = (slug) => NICHES.find((n) => slugify(n) === slug);

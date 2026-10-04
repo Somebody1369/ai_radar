@@ -1,9 +1,10 @@
 // Client entry: progressive enhancement on top of the prerendered pages.
-import { PAGE_SIZE, TASKS, NICHES, ALL_CATEGORIES, slugify } from './config.js';
+import { PAGE_SIZE, NICHES, slugify } from './config.js';
 import { search, lookup, suggest, setCache } from './api.js';
 import { matchesMetaFilters } from './classify.js';
-import { t, localePath, fmtNum, taskName, categoryName } from './i18n.js';
-import { grid, pagination, message, skeleton, resultsMeta, siteDetail, compareTable, favicon, esc, icon, sitePath, categoryHref, setLatest } from './templates.js';
+import { resolveQuery, matchTasks, matchNiches, typedIn, queryWords, cyrillic } from './query.js';
+import { t, localePath, taskName, categoryName } from './i18n.js';
+import { grid, pagination, message, skeleton, resultsMeta, shownMeta, siteDetail, compareTable, favicon, esc, icon, sitePath, categoryHref, setLatest } from './templates.js';
 import { readState, writeState, isDeep, hasQuery, defaultSort, effectiveSort, toApiParams, pageCount, sortMerged } from './listing.js';
 
 const lang = document.body.dataset.lang === 'en' ? 'en' : 'uk';
@@ -54,10 +55,35 @@ document.querySelectorAll('.fav img').forEach(checkFav);
 
 // ---------- language switch keeps the current path and query ----------
 const switcher = document.querySelector('[data-lang-switch]');
-if (switcher) {
-  const neutral = location.pathname.replace(/^\/en(?=\/|$)/, '') || '/';
+function syncLangSwitch() {
+  if (!switcher) return;
+  // Leading slashes collapsed: on /en//evil.com the switch must not turn into a link to //evil.com.
+  const neutral = `/${location.pathname.replace(/^\/en(?=\/|$)/, '').replace(/^\/+/, '')}`;
   switcher.href = (lang === 'uk' ? `/en${neutral}` : neutral) + location.search;
 }
+syncLangSwitch();
+addEventListener('popstate', syncLangSwitch);
+// Filters and the compare list live in the URL. Every change goes through here, so the language
+// switch always carries the current state (it used to keep the query the page was opened with).
+function setUrl(url, push = false) {
+  if (url !== location.pathname + location.search) history[push ? 'pushState' : 'replaceState'](null, '', url);
+  syncLangSwitch();
+}
+
+// ---------- badge tooltips stay on screen ----------
+// The "why" tooltip is CSS-only and opens to the right of its badge; near the right edge (a third
+// badge on a phone) it is shifted left by the overflow instead of being cut off.
+function placeTip(e) {
+  const b = e.target instanceof Element && e.target.closest('.badge[data-why]');
+  if (!b) return;
+  b.style.removeProperty('--tip-x');
+  const tip = getComputedStyle(b, '::after');
+  const width = parseFloat(tip.width) || parseFloat(tip.maxWidth) || 260;
+  const over = b.getBoundingClientRect().left + width - (document.documentElement.clientWidth - 12);
+  if (over > 0) b.style.setProperty('--tip-x', `${-Math.round(over)}px`);
+}
+document.addEventListener('pointerover', placeTip);
+document.addEventListener('focusin', placeTip);
 
 // ---------- mobile menu (the burger is shown by CSS only on narrow screens) ----------
 const header = document.querySelector('.header');
@@ -81,6 +107,11 @@ if (menuBtn) {
 const KEY = 'airadar.compare';
 // Unicode letters too: the API returns some IDN domains in their Unicode form.
 const DOMAIN = /^[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)+$/u;
+// "https://www.Suno.com/pricing?x=1" → "suno.com"; null when what is left is not a domain.
+const toDomain = (raw) => {
+  const d = String(raw || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[/?#].*$/, '');
+  return DOMAIN.test(d) ? d : null;
+};
 const compare = {
   get() {
     try {
@@ -157,20 +188,21 @@ document.addEventListener('click', (e) => {
 syncCompareButtons();
 renderBar();
 
-// ---------- search suggestions ----------
 const lower = (x) => String(x).toLowerCase();
 
-// Tasks and niches are matched locally in both languages, so "музика" and "music" both work.
+// ---------- search suggestions ----------
+// Tasks and niches in both languages (query.js). When the match is in the other language ("su" →
+// "subtitles"), that name is shown under the label, so "Транскрибація" does not look like a random hit.
 function localMatches(q) {
-  const n = lower(q);
-  const tasks = TASKS
-    .filter((tk) => [taskName(tk.slug, 'uk'), taskName(tk.slug, 'en'), tk.slug].some((v) => lower(v).includes(n)))
-    .slice(0, 3)
-    .map((tk) => ({ type: 'task', label: taskName(tk.slug, lang), icon: tk.icon, href: localePath(lang, `/tools/${tk.slug}/`) }));
-  const niches = ALL_CATEGORIES
-    .filter((c) => [c, categoryName(c, 'uk')].some((v) => lower(v).includes(n)))
-    .slice(0, 3)
-    .map((c) => ({ type: 'niche', label: categoryName(c, lang), icon: 'grid', href: categoryHref(lang, c) }));
+  const sub = (label, other) => (queryWords(q).some((w) => typedIn([label], w)) ? '' : other);
+  const tasks = matchTasks(q).map((tk) => {
+    const label = taskName(tk.slug, lang);
+    return { type: 'task', label, sub: sub(label, taskName(tk.slug, lang === 'uk' ? 'en' : 'uk')), icon: tk.icon, href: localePath(lang, `/tools/${tk.slug}/`) };
+  });
+  const niches = matchNiches(q).map((c) => {
+    const label = categoryName(c, lang);
+    return { type: 'niche', label, sub: sub(label, lang === 'uk' ? c : categoryName(c, 'uk')), icon: 'grid', href: categoryHref(lang, c) };
+  });
   return [...tasks, ...niches];
 }
 
@@ -197,7 +229,7 @@ async function siteMatches(q, preset, signal) {
   const seen = new Set(local.map((x) => x.domain));
   return [...local, ...remote.filter((x) => !seen.has(x.domain))]
     .slice(0, 7)
-    .map((x) => ({ type: 'site', label: x.domain, domain: x.domain, title: x.title, dr: x.dr, href: sitePath(lang, x.domain) }));
+    .map((x) => ({ type: 'site', label: x.domain, sub: x.title, domain: x.domain, dr: x.dr, href: sitePath(lang, x.domain) }));
 }
 
 // Without a chosen niche, keep suggestions inside the AI part of the index.
@@ -256,7 +288,7 @@ function autocomplete(input, { source, onPick = (it) => { location.href = it.hre
       if (it.type !== group) { group = it.type; html += `<li class="ac-group" role="presentation">${groupLabel[group]}</li>`; }
       const lead = it.type === 'site' ? favicon(it.domain, 24) : `<span class="ac-icon">${icon(it.icon, 'icon icon-sm')}</span>`;
       html += `<li role="option" id="${list.id}-${i}" data-i="${i}" aria-selected="false">${lead}
-        <span class="ac-text"><span class="ac-label">${highlight(it.label, q)}</span>${it.type === 'site' ? `<span class="ac-sub">${esc(it.title)}</span>` : ''}</span>
+        <span class="ac-text"><span class="ac-label">${highlight(it.label, q)}</span>${it.sub ? `<span class="ac-sub">${esc(it.sub)}</span>` : ''}</span>
         ${it.type === 'site' && it.dr !== null ? `<span class="ac-dr">DR ${it.dr}</span>` : ''}</li>`;
     });
     list.innerHTML = html || `<li class="ac-empty" role="presentation">${L.suggest.empty}</li>`;
@@ -452,14 +484,16 @@ if (hero) {
     e.preventDefault();
     const q = hero.elements.q.value.trim();
     const cat = catOf();
-    // A query that names a task ("музика", "logos") opens the tool finder for it.
-    const task = q && TASKS.find((tk) => [taskName(tk.slug, 'uk'), taskName(tk.slug, 'en'), tk.slug].some((v) => lower(v) === lower(q)));
-    if (task) {
+    // A query about a task or a niche ("музика", "генератор лого", "video editor", "чат-бот") opens
+    // its page: the API could not search the Ukrainian ones at all.
+    const m = q ? resolveQuery(q) : null;
+    if (m?.task) {
       // A niche picked in the hero narrows the task page too, unless it is the task's own niche.
-      const qs = cat && cat !== task.params.ai_categories ? `?${writeState({ cat })}` : '';
-      location.href = localePath(lang, `/tools/${task.slug}/`) + qs;
+      const qs = cat && cat !== m.task.params.ai_categories ? `?${writeState({ cat })}` : '';
+      location.href = localePath(lang, `/tools/${m.task.slug}/`) + qs;
       return;
     }
+    if (m?.niche && (!cat || cat === m.niche)) { location.href = categoryHref(lang, m.niche); return; }
     if (!q && NICHES.includes(cat)) { location.href = localePath(lang, `/niche/${slugify(cat)}/`); return; }
     const qs = writeState({ cat: cat || undefined, q: q || undefined });
     location.href = localePath(lang, '/sites/') + (qs ? `?${qs}` : '');
@@ -556,8 +590,23 @@ function initList(root) {
     const [a, b] = await Promise.all([search(params, { signal }), search(plain, { signal })]);
     const seen = new Set();
     const results = sortMerged(cfg, s, [...a.results, ...b.results].filter((x) => !seen.has(x.domain) && seen.add(x.domain)));
-    return { total: results.length, results, hidden: a.hidden + b.hidden };
+    return { total: results.length, results, hidden: [...new Set([...a.hidden, ...b.hidden])] };
   }
+
+  // Why a list is empty: a Cyrillic query (the API searches English text), filters, or the query.
+  function emptyText(s) {
+    if (cyrillic(s.q)) return L.list.latin;
+    if (Object.keys(s).some((k) => !['q', 'sort', 'page'].includes(k))) return L.list.empty;
+    return s.q ? L.list.emptyQuery : L.list.nothing;
+  }
+
+  // A domain typed into the search ("suno.com"): the site may be outside this list (elevenlabs.io is
+  // not even category=ai), so it is looked up and shown above the results. The TLD needs a letter,
+  // so "4.5" is not a domain.
+  const exactDomain = (q) => {
+    const d = toDomain(q);
+    return d && /\p{L}/u.test(d.split('.').pop()) ? d : null;
+  };
 
   const hrefFor = (s) => (n) => {
     const qs = writeState({ ...s, page: n > 1 ? n : undefined });
@@ -571,7 +620,7 @@ function initList(root) {
     if (form.elements.sort) form.elements.sort.value = effectiveSort(cfg, s);
     const qs = writeState(s);
     const url = cfg.base + (qs ? `?${qs}` : '');
-    if (url !== location.pathname + location.search) history[push ? 'pushState' : 'replaceState'](null, '', url);
+    setUrl(url, push);
     // Filter combinations are not canonical pages; keep them out of the index.
     document.querySelector('meta[name="robots"]')?.setAttribute('content', qs ? 'noindex,follow' : 'index,follow');
 
@@ -584,32 +633,40 @@ function initList(root) {
 
     let redirect;
     try {
-      const data = await fetchList(s, ctrl.signal);
+      const domain = (s.page || 1) === 1 ? exactDomain(s.q) : null;
+      const [data, exact] = await Promise.all([
+        fetchList(s, ctrl.signal),
+        domain ? lookup(domain, { signal: ctrl.signal }).catch(() => null) : null,
+      ]);
+      const pinned = exact && !data.results.some((x) => x.domain === exact.domain)
+        ? `<section class="exact" aria-label="${esc(L.list.exact)}"><p class="results-meta">${esc(L.list.exact)}</p>${grid([exact], lang)}</section>`
+        : '';
       let html;
       if (isDeep(s)) {
         const matched = data.results.filter((x) => matchesMetaFilters(x.meta, s));
         const pages = Math.max(1, Math.ceil(matched.length / PAGE_SIZE));
         const page = Math.min(s.page || 1, pages);
         const slice = matched.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-        html = resultsMeta(L.list.deep(matched.length, data.results.length + data.hidden))
-          + (slice.length ? grid(slice, lang) : message(data.results.length ? L.list.deepEmpty : L.list.empty))
+        html = resultsMeta(L.list.deep(matched.length, data.results.length + data.hidden.length))
+          + (slice.length ? grid(slice, lang) : message(data.results.length ? L.list.deepEmpty : emptyText(s)))
           + pagination(page, pages, hrefFor(s), lang);
-      } else if (!data.results.length && !data.hidden) {
+      } else if (!data.results.length && !data.hidden.length) {
         // A page past the end (an old link, fewer results now): go to the last real page instead.
         const last = pageCount(data.total);
         if (data.total && (s.page || 1) > last) redirect = { ...s, page: last > 1 ? last : undefined };
-        html = message(L.list.empty);
+        // The typed site was found: that is the answer, not "nothing found".
+        html = pinned ? '' : message(emptyText(s));
       } else {
         // A page can be fully hidden by the blocklist; keep the pagination so later pages stay reachable.
         const page = s.page || 1;
-        const from = (page - 1) * PAGE_SIZE;
-        html = resultsMeta(L.list.shown(from + 1, from + data.results.length + data.hidden, fmtNum(data.total, lang)))
-          + (data.results.length ? grid(data.results, lang) : message(L.list.empty))
+        html = shownMeta(lang, page, data)
+          + (data.results.length ? grid(data.results, lang) : message(emptyText(s)))
           + pagination(page, pageCount(data.total), hrefFor(s), lang);
       }
       if (!redirect) {
-        results.innerHTML = html;
-        status.textContent = results.querySelector('.results-meta, .msg')?.textContent || '';
+        results.innerHTML = pinned + html;
+        // The list's own line, not the pinned site's label.
+        status.textContent = results.querySelector(':scope > .results-meta, :scope > .msg')?.textContent || (pinned ? L.list.exact : '');
         syncCompareButtons();
       }
     } catch (e) {
@@ -750,7 +807,7 @@ if (view) {
   const render = async () => {
     const id = ++renderId;
     const list = compare.get();
-    history.replaceState(null, '', compareHref(list));
+    setUrl(compareHref(list));
     note.textContent = '';
     if (!list.length) { view.innerHTML = message(L.compare.empty); return; }
     view.innerHTML = compareTable(list.map((domain) => ({ domain })), lang);
@@ -762,7 +819,7 @@ if (view) {
     if (missing.length) {
       // Drop them from the list: they have no column, so they could not be removed otherwise.
       compare.set(list.filter((d) => !missing.includes(d)), { quiet: true });
-      history.replaceState(null, '', compareHref(compare.get()));
+      setUrl(compareHref(compare.get()));
     }
     const sites = found.filter(Boolean);
     view.innerHTML = sites.length ? compareTable(sites, lang) : message(L.compare.empty);
@@ -776,9 +833,9 @@ if (view) {
     const typed = input.value;
     // Clear the field only if the visitor has not started typing something else meanwhile.
     const done = () => { if (input.value === typed) input.value = ''; };
-    const d = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+    const d = toDomain(raw);
     note.textContent = '';
-    if (!DOMAIN.test(d)) { note.textContent = L.compare.invalid; return; }
+    if (!d) { note.textContent = L.compare.invalid; return; }
     if (compare.get().includes(d)) { done(); return; }
     if (compare.get().length >= 3) { note.textContent = L.compare.full; return; }
     let s;

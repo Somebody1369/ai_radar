@@ -75,6 +75,9 @@ export function toApiParams(cfg, s, { nudge = true } = {}) {
   const q = words.filter(Boolean).join(' ').trim();
   if (q) p.q = q; else delete p.q;
 
+  // ai_startups=1 leaves out established products: "suno" found sunodownloader.io but not suno.com.
+  // A query typed in the catalog therefore searches every site the API calls AI.
+  if (cfg.wideQuery && s.q && !s.cat && p.ai_startups) { delete p.ai_startups; p.category = 'ai'; }
   if (s.cat === 'all') {
     delete p.ai_categories;
     // A task widened to every niche must stay inside the AI part of the index, not all 17M sites.

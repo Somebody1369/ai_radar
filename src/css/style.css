@@ -205,8 +205,9 @@ a.chip:hover { background: var(--fill-hover); color: var(--text); }
 .badge[data-why] { cursor: help; }
 .badge[data-why]::after {
   content: attr(data-why);
-  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 20;
-  width: max-content; max-width: 260px; padding: 8px 12px; border-radius: var(--radius-sm);
+  /* --tip-x: shift back into the viewport, set by app.js when the badge sits near the right edge */
+  position: absolute; left: var(--tip-x, 0px); bottom: calc(100% + 8px); z-index: 20;
+  width: max-content; max-width: min(260px, calc(100vw - 24px)); padding: 8px 12px; border-radius: var(--radius-sm);
   background: #2a2a2a; border: 1px solid var(--line-strong); color: var(--text);
   font-size: 12px; font-weight: 400; line-height: 1.4; white-space: normal;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
@@ -320,7 +321,10 @@ a.chip:hover { background: var(--fill-hover); color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .card-skel, .skel-line { animation: none; } *, .dd::after { transition: none !important; scroll-behavior: auto !important; } }
 
 /* list & filters */
-.filters { position: sticky; top: 72px; z-index: 10; display: flex; flex-direction: column; gap: 10px; padding: 12px; margin-bottom: 20px; border-radius: 28px; background: rgba(28, 28, 28, 0.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); }
+/* Scrolls with the page (pinned, it took half of a 768px-tall screen once "Filters" was open).
+   Still positioned: with `static` its z-index stops working and open dropdowns slide under the
+   positioned favicons and badges of the cards below. */
+.filters { position: relative; z-index: 10; display: flex; flex-direction: column; gap: 10px; padding: 12px; margin-bottom: 20px; border-radius: 28px; background: rgba(28, 28, 28, 0.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); }
 .filters-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 .field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 170px; min-width: 0; }
 .field-q { flex: 2 1 260px; }
@@ -341,6 +345,7 @@ a.chip:hover { background: var(--fill-hover); color: var(--text); }
 .results { transition: opacity .15s; min-height: 200px; }
 .results.is-loading { opacity: 0.45; pointer-events: none; }
 .results-meta { font-size: 13px; color: var(--text-3); margin: 0 0 14px; }
+.exact { margin-bottom: 28px; }
 .msg { padding: 28px; border-radius: var(--radius); background: var(--surface); border: 1px dashed var(--line-strong); color: var(--text-2); text-align: center; }
 
 .pagination { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 28px 0 8px; }
@@ -420,9 +425,6 @@ tbody th { color: var(--text-3); font-weight: 500; width: 180px; white-space: no
   .js .nav a { padding: 13px 18px; font-size: 16px; }
   .js .nav a:not([aria-current]) { color: var(--text); }
   .stats { grid-template-columns: repeat(2, 1fr); }
-  /* Not sticky here, but still positioned: with `static` its z-index stops working and the open
-     dropdowns slide under the positioned favicons and badges of the cards below. */
-  .filters { position: relative; top: auto; }
 }
 @media (max-width: 560px) {
   .wrap { padding: 0 16px; }
@@ -453,7 +455,7 @@ tbody th { color: var(--text-3); font-weight: 500; width: 180px; white-space: no
   .cmpbar-label { font-size: 13px; margin-right: auto; }
   /* The "up to 3 sites" note gets its own line instead of disappearing. */
   .cmpbar-note { order: 5; flex-basis: 100%; padding: 0 8px 4px 0; }
-  .badge[data-why]::after { max-width: 220px; }
+  .badge[data-why]::after { max-width: min(220px, calc(100vw - 24px)); }
 
   /* tighter spacing on phones */
   .page-head { padding: 16px 0 20px; }

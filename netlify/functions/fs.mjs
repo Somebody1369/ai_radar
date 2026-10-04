@@ -3,6 +3,7 @@
 // Here only the parameters the UI sends get through, values are checked, the identity is ours and
 // the answer is always JSON. scripts/serve.mjs runs this same handler locally.
 import { API_BASE, API_IDENTITY, isDate } from '../../src/js/config.js';
+import { classify } from '../../src/js/classify.js';
 
 const flag = /^1$/;
 const intIn = (min, max) => (v) => /^\d{1,5}$/.test(v) && +v >= min && +v <= max;
@@ -59,8 +60,14 @@ export default async function handler(req) {
     if (!up.ok || !data || data.ok === false) {
       return json(up.status === 429 ? 429 : 502, { ok: false, error: data?.error || `upstream ${up.status}` });
     }
+    // Page text (content=1) only feeds the pricing/access heuristic: classify it here with the same
+    // module the build uses and send the verdict instead. A 100-result scan is ~90 KB instead of
+    // ~450 KB, and the proxy never relays raw page text, the costliest thing to abuse it for.
+    for (const r of Array.isArray(data.results) ? data.results : []) {
+      if (r && typeof r.content === 'string') { r.radar = classify(r); delete r.content; }
+    }
     // FreeSerp itself caches for 30 s; a short shared cache keeps repeated filter clicks off the API.
-    return new Response(text, {
+    return new Response(JSON.stringify(data), {
       status: 200,
       headers: { ...SAFE, 'Cache-Control': 'public, max-age=300', 'Netlify-CDN-Cache-Control': 'public, max-age=300, stale-while-revalidate=600', 'Netlify-Vary': 'query' },
     });
