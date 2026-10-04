@@ -3,13 +3,22 @@
 // LLM summary and look for explicit phrases. Every verdict keeps the phrases that produced it,
 // so the UI can show "why" instead of pretending to know.
 
+// Idioms where "free" says nothing about the price ("feel free", "hands-free", "risk-free"…).
+const NOT_PRICE = '(?<!(?:feel|hands|royalty|risk|hassle|toll|sugar|gluten|carbon|duty|tax|stress|worry|cruelty|error|bug|spam|ad|distraction|cookie)[- ])';
+// Zero prices ("$0", "€0.00") mean a free tier; amounts followed by M/B/k are funding, not prices.
+const ZERO = '[$€£]\\s?0(?:[.,]0+)?(?![\\d.,])';
+const PRICE = '[$€£]\\s?(?!0(?:[.,]0+)?(?![\\d.,]))\\d+(?:[.,]\\d+)*(?![\\d.,]|\\s?(?:[mbk]\\b|mn\\b|bn\\b|million|billion))';
+
 const RX = {
   // Explicit "free" phrasing. A bare "free" only counts when it is not part of trial/shipping/etc.
-  free: /\b(100% free|free forever|completely free|totally free|absolutely free|free to use|free plan|free tier|free version|free account|free online|for free|it'?s free|start (for )?free|try (it )?(for )?free|get started (for )?free|free credits?|free download|no cost)\b|\bfree\b(?! (trial|shipping|delivery|consultation|quote|demo|estimate|returns))/gi,
+  free: new RegExp(`\\b(100% free|free forever|completely free|totally free|absolutely free|free to use|free plan|free tier|free version|free account|free online|for free|it'?s free|start (for )?free|try (it )?(for )?free|get started (for )?free|free credits?|free download|no cost)\\b|${ZERO}|${NOT_PRICE}\\bfree\\b(?! (trial|shipping|delivery|consultation|quote|demo|estimate|returns))`, 'gi'),
   trial: /\b(free trial|\d+[- ]day (free )?trial|trial period|try free for \d+)\b/gi,
-  paid: /([$€£]\s?\d+(?:[.,]\d+)?|\b\d+(?:[.,]\d+)?\s?(?:usd|eur|uah|грн)\b|\/\s?(?:mo|month|yr|year)\b|\bper (?:month|year|user|seat)\b|\b(?:subscribe|subscription|premium|pro plan|upgrade to pro|buy now|purchase|billed (?:monthly|annually|yearly)|one-time payment|lifetime deal)\b)/gi,
-  // A "Pricing" menu link alone is weak: most freemium sites have one. It only confirms other signals.
-  pricingLink: /\bpricing\b/gi,
+  // Strong paid signals: a non-zero price or explicit billing words.
+  paid: new RegExp(`(${PRICE}|\\b\\d+(?:[.,]\\d+)?\\s?(?:usd|eur|uah)\\b|\\bper (?:user|seat)\\b|\\b(?:subscription|paid plans?|pro plan|upgrade to pro|buy now|billed (?:monthly|annually|yearly)|one-time payment|lifetime deal)\\b)`, 'gi'),
+  // Weak signals: a "Pricing" menu link, "premium", "subscribe" (not to a newsletter), "/month"…
+  // Most freemium sites have them, so one weak signal only confirms a free tier (→ freemium);
+  // without any "free" it takes two different weak signals to call a site paid.
+  weakPaid: /\b(pricing|premium|purchase|upgrade|choose (?:your|a) plan|per (?:month|year)|subscribe(?!\s+(?:to\s+)?(?:our\s+|the\s+)?(?:newsletter|updates|channel|blog)))\b|\/\s?(?:mo|month|yr|year)\b/gi,
   noauth: /\b(no (sign[- ]?up|signup|login|log[- ]in|registration|account)( required| needed)?|without (sign[- ]?up|signing up|registration|registering|login|logging in|an account)|no account (needed|required)|no registration)\b/gi,
   waitlist: /\b(join (the |our )?wait ?list|wait ?list|early access|coming soon|request access|request a demo)\b/gi,
   account: /\b(sign[- ]?up|log[- ]?in|sign[- ]?in|create (an |your )?account|register)\b/gi,
@@ -34,9 +43,8 @@ export function classify(site) {
 
   const hasFree = ev.free.length > 0;
   const hasTrial = ev.trial.length > 0;
-  // "free" + a pricing page is the classic freemium pattern; "pricing" without "free" proves nothing.
-  const hasPaid = ev.paid.length > 0 || (hasFree && ev.pricingLink.length > 0);
-  if (!ev.paid.length && hasPaid) ev.paid = ev.pricingLink;
+  const hasPaid = ev.paid.length > 0 || ev.weakPaid.length >= (hasFree ? 1 : 2);
+  if (!ev.paid.length && hasPaid) ev.paid = ev.weakPaid;
 
   let pricing = 'unknown';
   let pricingEvidence = [];

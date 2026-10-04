@@ -1,6 +1,6 @@
 // Static site generator: fetches FreeSerp once, prerenders every indexable page in uk + en,
 // writes sitemap/robots and copies assets. Run: node scripts/build.mjs
-import { mkdir, writeFile, readFile, cp, rm } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, readdir, cp, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,28 @@ const DIST = path.join(ROOT, 'dist');
 const CACHE_DIR = path.join(ROOT, '.cache');
 const SITE = (process.env.URL || 'http://localhost:8080').replace(/\/$/, '');
 const BUILD_DATE = new Date().toISOString().slice(0, 10);
+
+// JS/CSS go to /assets/<content hash>/: relative module imports then carry the version too, so a deploy
+// can never mix old and new modules, and the folder can be cached forever (see netlify.toml).
+async function hashDir(dirs) {
+  const h = createHash('sha1');
+  for (const dir of dirs) {
+    for (const f of (await readdir(dir, { recursive: true })).sort()) {
+      try { h.update(f).update(await readFile(path.join(dir, f))); } catch { /* sub-directory */ }
+    }
+  }
+  return h.digest('hex').slice(0, 10);
+}
+const ASSETS = `/assets/${await hashDir([path.join(ROOT, 'src/js'), path.join(ROOT, 'src/css')])}`;
+
+// The only inline script (lets CSS hide the mobile nav before app.js loads). Its hash is whitelisted in
+// the Content-Security-Policy in netlify.toml, so a change here must update that hash too.
+const HEAD_SCRIPT = "document.documentElement.classList.add('js')";
+const HEAD_SCRIPT_HASH = `sha256-${createHash('sha256').update(HEAD_SCRIPT).digest('base64')}`;
+if (!(await readFile(path.join(ROOT, 'netlify.toml'), 'utf8')).includes(HEAD_SCRIPT_HASH)) {
+  console.error(`✗ netlify.toml CSP must allow the inline script: '${HEAD_SCRIPT_HASH}'`);
+  process.exit(1);
+}
 
 // ---------- data ----------
 
@@ -36,6 +58,7 @@ if (!process.env.NETLIFY) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let requests = 0;
+let failures = 0;
 async function safe(label, fn) {
   try {
     const out = await fn();
@@ -43,6 +66,7 @@ async function safe(label, fn) {
     await sleep(120); // be polite: the API asks for a few requests per second at most
     return out;
   } catch (e) {
+    failures++;
     console.warn(`! ${label}: ${e.message}`);
     return null;
   }
@@ -50,7 +74,7 @@ async function safe(label, fn) {
 
 const LIST = {
   catalog: { preset: { ai_startups: 1 }, sort: 'dr', base: '/sites/', filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'dates', 'flags'] },
-  task: (task) => ({ preset: { ...task.params }, sort: task.params.q ? 'relevance' : 'dr', base: `/tools/${task.slug}/`, filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'dr', 'flags'] }),
+  task: (task) => ({ preset: { ...task.params }, sort: task.params.q ? 'relevance' : 'dr', widenQ: task.widen, base: `/tools/${task.slug}/`, filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'dr', 'flags'] }),
   // On niche pages the niche select switches to another niche page instead of filtering in place.
   niche: (name) => ({ preset: { ai_categories: name }, sort: 'dr', base: `/niche/${slugify(name)}/`, nicheNav: true, filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'flags'] }),
   fresh: (from, to) => ({ preset: { ai_startups: 1, from_date: from, to_date: to }, sort: 'dr', base: '/new/', filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'flags'] }),
@@ -64,7 +88,14 @@ const catalog = await fetchList(LIST.catalog, 'catalog');
 
 // "New" is measured from the latest date in the data, not from today: the index lags real time.
 const newest = await safe('latest', () => search({ ai_startups: 1, sort: 'went_live', order: 'desc', size: 1 }));
-const latest = newest?.results[0]?.wentLive || BUILD_DATE;
+// A broken API must not replace a good deploy with empty pages: fail the build and Netlify keeps
+// serving the previous one.
+const abort = () => {
+  console.error('✗ FreeSerp API is unavailable or failing — build aborted, the current deploy stays live.');
+  process.exit(1);
+};
+if (!catalog || !newest) abort();
+const latest = newest.results[0]?.wentLive || BUILD_DATE;
 setLatest(latest);
 const daysBefore = (n) => new Date(Date.parse(`${latest}T00:00:00Z`) - n * 864e5).toISOString().slice(0, 10);
 const weekAgo = daysBefore(6);
@@ -88,13 +119,15 @@ const niches = [];
 for (const name of NICHES) {
   niches.push({ name, cfg: LIST.niche(name), data: await fetchList(LIST.niche(name), `niche ${name}`), fresh: await newestIn({ ai_categories: name }, `niche ${name}`) });
 }
-console.log(`  ${requests} API requests ok`);
+console.log(`  ${requests} API requests ok, ${failures} failed`);
+// A few failed niche requests are tolerated (those pages load their list in the browser instead).
+if (failures > (requests + failures) * 0.2) abort();
 
 // Every site that appears in a prerendered list gets its own indexable page.
 const sites = new Map();
 for (const d of [catalog, fresh, ...tasks.flatMap((x) => [x.data, x.fresh]), ...niches.flatMap((x) => [x.data, x.fresh])]) {
   // IDN / odd domains stay client-rendered: their folder names would not match encoded URLs.
-  for (const s of d?.results || []) if (/^[a-z0-9.-]+$/.test(s.domain) && !sites.has(s.domain)) sites.set(s.domain, s);
+  for (const s of d?.results || []) if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(s.domain) && !sites.has(s.domain)) sites.set(s.domain, s);
 }
 
 // ---------- layout ----------
@@ -108,7 +141,7 @@ function jsonld(obj) {
 function breadcrumbs(lang, items) {
   const L = t(lang);
   const all = [{ name: L.siteName, path: '/' }, ...items];
-  const html = `<nav class="crumbs" aria-label="breadcrumbs">${all.map((c, i) => (i < all.length - 1 ? `<a href="${localePath(lang, c.path)}">${esc(c.name)}</a><span aria-hidden="true">/</span>` : `<span aria-current="page">${esc(c.name)}</span>`)).join('')}</nav>`;
+  const html = `<nav class="crumbs" aria-label="${L.crumbsLabel}">${all.map((c, i) => (i < all.length - 1 ? `<a href="${localePath(lang, c.path)}">${esc(c.name)}</a><span aria-hidden="true">/</span>` : `<span aria-current="page">${esc(c.name)}</span>`)).join('')}</nav>`;
   const ld = { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: all.map((c, i) => ({ '@type': 'ListItem', position: i + 1, name: c.name, item: SITE + localePath(lang, c.path) })) };
   return { html, ld };
 }
@@ -124,6 +157,7 @@ function layout({ lang, pathname, title, description, body, active = '', robots 
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>${HEAD_SCRIPT}</script>
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
 <meta name="robots" content="${robots}">
@@ -141,8 +175,8 @@ ${LANGS.map((l) => `<link rel="alternate" hreflang="${l}" href="${SITE + localeP
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400..700;1,14..32,400..600&display=swap">
-<link rel="preconnect" href="https://freeserp.ai">
-<link rel="stylesheet" href="/assets/css/style.css">
+<link rel="preconnect" href="https://www.google.com">
+<link rel="stylesheet" href="${ASSETS}/css/style.css">
 ${ld.map(jsonld).join('\n')}
 </head>
 <body data-lang="${lang}" data-latest="${latest}">
@@ -150,10 +184,11 @@ ${ld.map(jsonld).join('\n')}
 <header class="header">
   <div class="wrap header-in">
     <a class="logo" href="${localePath(lang, '/')}">${icon('radar', 'icon logo-icon')}<span>AI Radar</span></a>
-    <nav class="nav" aria-label="main">
+    <nav class="nav" id="nav" aria-label="${L.navLabel}">
       ${nav.map(([k, p]) => `<a href="${localePath(lang, p)}"${active === k ? ' aria-current="page"' : ''}>${L.nav[k]}</a>`).join('')}
     </nav>
     <a class="lang" href="${localePath(other, pathname)}" hreflang="${other}" lang="${other}" data-lang-switch title="${L.lang.switch}">${L.lang[other]}</a>
+    <button type="button" class="menu-btn" aria-controls="nav" aria-expanded="false" aria-label="${L.menu}" data-menu>${icon('menu', 'icon i-open')}${icon('x', 'icon i-close')}</button>
   </div>
 </header>
 <main id="main" class="wrap">
@@ -173,7 +208,7 @@ ${body}
   </div>
 </footer>
 <div class="cmpbar" data-cmpbar hidden></div>
-<script type="module" src="/assets/js/app.js"></script>
+<script type="module" src="${ASSETS}/js/app.js"></script>
 </body>
 </html>`;
 }
@@ -229,7 +264,8 @@ function listSection(cfg, data, lang) {
     const href = (n) => `${localePath(lang, cfg.base)}?page=${n}`;
     inner = resultsMeta(L.list.shown(1, Math.min(PAGE_SIZE, data.total), fmtNum(data.total, lang))) + grid(data.results, lang) + pagination(1, pages, href, lang);
   }
-  return `<section class="list" data-list="${esc(JSON.stringify({ preset: cfg.preset, sort: cfg.sort, base: localePath(lang, cfg.base), nicheNav: Boolean(cfg.nicheNav) }))}"${data ? '' : ' data-empty'}>
+  return `<section class="list" aria-labelledby="results-h" data-list="${esc(JSON.stringify({ preset: cfg.preset, sort: cfg.sort, widenQ: cfg.widenQ, base: localePath(lang, cfg.base), nicheNav: Boolean(cfg.nicheNav) }))}"${data ? '' : ' data-empty'}>
+  <h2 class="sr-only" id="results-h">${L.list.results}</h2>
   ${filtersForm(cfg, lang)}
   <div class="results" data-results>${inner}</div>
 </section>`;
@@ -410,10 +446,10 @@ ${sitemap.flatMap((p) => LANGS.map((l) => urlEntry(p, l))).join('\n')}
 </urlset>`);
 await writeFile(path.join(DIST, 'robots.txt'), `User-agent: *\nAllow: /\nDisallow: /site/$\nDisallow: /en/site/$\n\nSitemap: ${SITE}/sitemap.xml\n`);
 
-await cp(path.join(ROOT, 'src/js'), path.join(DIST, 'assets/js'), { recursive: true });
+await cp(path.join(ROOT, 'src/js'), path.join(DIST, ASSETS, 'js'), { recursive: true });
 // Compact index of every prerendered site for instant prefix suggestions (the API has no prefix search).
-await writeFile(path.join(DIST, 'assets/sites-index.json'), JSON.stringify([...sites.values()].map((s) => [s.domain, s.title.slice(0, 90), s.dr, s.categories])));
-await cp(path.join(ROOT, 'src/css'), path.join(DIST, 'assets/css'), { recursive: true });
+await writeFile(path.join(DIST, ASSETS, 'sites-index.json'), JSON.stringify([...sites.values()].map((s) => [s.domain, s.title.slice(0, 90), s.dr, s.categories])));
+await cp(path.join(ROOT, 'src/css'), path.join(DIST, ASSETS, 'css'), { recursive: true });
 await cp(path.join(ROOT, 'src/static'), DIST, { recursive: true });
 
 console.log(`Built ${sitemap.length * LANGS.length} indexable pages (${sites.size} site pages per language) → dist/`);

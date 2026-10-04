@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "ai-radar", "runtimeExecutable": "node", "runtimeArgs": ["scripts/serve.mjs"], "port": 8080 }
+    { "name": "ai-radar", "runtimeExecutable": "node", "runtimeArgs": ["scripts/serve.mjs"], "port": 8080, "autoPort": true }
   ]
 }

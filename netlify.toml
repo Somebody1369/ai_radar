@@ -5,12 +5,11 @@
 [build.environment]
   NODE_VERSION = "22"
 
-# Same-origin proxy: FreeSerp duplicates its CORS header, so browsers cannot call it directly.
-[[redirects]]
-  from = "/api/fs"
-  to = "https://freeserp.ai/api.php"
-  status = 200
-  force = true
+[functions]
+  directory = "netlify/functions"
+
+# /api/fs is served by netlify/functions/fs.mjs (config.path): an allow-listed proxy, because FreeSerp
+# duplicates its CORS header and browsers cannot call it directly.
 
 # Site pages that were not prerendered are rendered in the browser from a shell page.
 [[redirects]]
@@ -28,13 +27,19 @@
   to = "/en/404.html"
   status = 404
 
+# JS/CSS live in /assets/<content hash>/, so a file at a given URL never changes.
 [[headers]]
   for = "/assets/*"
   [headers.values]
-    Cache-Control = "public, max-age=3600, must-revalidate"
+    Cache-Control = "public, max-age=31536000, immutable"
 
+# The script hash is for the one inline script in <head> that adds the `js` class (scripts/build.mjs).
+# JSON-LD blocks are data, not scripts, so CSP does not apply to them.
 [[headers]]
   for = "/*"
   [headers.values]
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'sha256-Du+OJKJSbdUgz5nrHeWWINvez6XKDDU/tyj/5c2uvwo='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://www.google.com https://*.gstatic.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"

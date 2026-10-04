@@ -14,6 +14,9 @@ const uk = {
   tagline: 'Каталог нових AI-інструментів',
   nav: { tools: 'Інструменти', catalog: 'Усі AI-сайти', new: 'Нові стартапи', compare: 'Порівняння' },
   skip: 'Перейти до змісту',
+  menu: 'Меню',
+  navLabel: 'Головне меню',
+  crumbsLabel: 'Навігаційний ланцюжок',
   home: {
     title: 'AI Radar — AI-інструмент для будь-якої задачі',
     description: 'Каталог нових AI-сайтів і стартапів: пошук інструментів для музики, відео, зображень, лого та брендингу, фільтри за ціною та реєстрацією, порівняння.',
@@ -70,7 +73,7 @@ const uk = {
     lead: (from, to) => `AI-стартапи, що з’явилися в індексі з ${from} по ${to} — останній тиждень, за який є дані. Оберіть нішу, щоб побачити новинки саме в ній.`,
   },
   site: {
-    title: (s) => `${s.domain} — огляд AI-сервісу`,
+    title: (s) => (s.isAi === false ? `${s.domain} — огляд сервісу` : `${s.domain} — огляд AI-сервісу`),
     visit: 'Відкрити сайт',
     facts: 'Факти',
     niches: 'Ніші',
@@ -129,13 +132,15 @@ const uk = {
   sort: { relevance: 'Релевантність', new: 'Спершу нові', dr: 'За DR' },
   pricing: { any: 'Будь-яка', hasfree: 'Free / freemium', free: 'Безкоштовно', freemium: 'Freemium', trial: 'Пробний період', paid: 'Платно', unknown: 'Ціна не вказана' },
   access: { any: 'Будь-який', noauth: 'Без реєстрації', account: 'Є акаунти', waitlist: 'Лист очікування', unknown: 'Доступ не вказано' },
-  builders: { ai: 'Будь-який AI-конструктор', ai_likely: 'Схоже на AI-генерацію', nextjs: 'Next.js', react: 'React', wordpress: 'WordPress', wix: 'Wix', shopify: 'Shopify', webflow: 'Webflow', framer: 'Framer', lovable: 'Lovable', v0: 'v0', bolt: 'Bolt', base44: 'Base44' },
+  builders: { ai: 'Будь-який AI-конструктор', ai_likely: 'Схоже на AI-генерацію', nextjs: 'Next.js', wordpress: 'WordPress', wix: 'Wix', shopify: 'Shopify', framer: 'Framer', lovable: 'Lovable', v0: 'v0', bolt: 'Bolt', base44: 'Base44' },
   card: { details: 'Детальніше', open: 'Сайт', compare: 'Порівняти', inCompare: 'У порівнянні', dr: 'DR', live: 'в індексі', aiBuilt: 'AI-конструктор', new: 'Новий', newWhy: 'З’явився в індексі за останні 14 днів даних' },
   newIn: { title: 'Нове в категорії', range: (a, b) => (a === b ? `Останні появи в індексі: ${a}` : `Останні появи в індексі: ${a} – ${b}`), more: 'Усі за датою появи' },
   list: {
     shown: (a, b, total) => `Показано ${a}–${b} з ${total}`,
     deep: (n, scanned) => `Знайдено ${n} серед перших ${scanned} результатів (ціна й доступ визначаються за текстом сторінки)`,
     empty: 'Нічого не знайдено. Спробуйте прибрати частину фільтрів.',
+    deepEmpty: 'Серед перевірених сайтів збігів немає. Ознаки ціни й доступу є не на кожній сторінці — спробуйте прибрати фільтр «Доступ» або «Ціна».',
+    results: 'Результати',
     error: 'FreeSerp зараз не відповідає. Спробуйте ще раз за хвилину.',
     retry: 'Спробувати ще',
     loading: 'Завантаження…',
@@ -163,6 +168,9 @@ const en = {
   tagline: 'Directory of new AI tools',
   nav: { tools: 'Tools', catalog: 'All AI sites', new: 'New startups', compare: 'Compare' },
   skip: 'Skip to content',
+  menu: 'Menu',
+  navLabel: 'Main menu',
+  crumbsLabel: 'Breadcrumbs',
   home: {
     title: 'AI Radar — AI tool for any task',
     description: 'Directory of new AI sites and startups: find tools for music, video, images, logos and branding, filter by pricing and sign-up, compare side by side.',
@@ -219,7 +227,7 @@ const en = {
     lead: (from, to) => `AI startups indexed from ${from} to ${to} — the latest week with data. Pick a niche to see what is new in it.`,
   },
   site: {
-    title: (s) => `${s.domain} — AI service overview`,
+    title: (s) => (s.isAi === false ? `${s.domain} — service overview` : `${s.domain} — AI service overview`),
     visit: 'Visit site',
     facts: 'Facts',
     niches: 'Niches',
@@ -278,13 +286,15 @@ const en = {
   sort: { relevance: 'Relevance', new: 'Newest first', dr: 'By DR' },
   pricing: { any: 'Any', hasfree: 'Free / freemium', free: 'Free', freemium: 'Freemium', trial: 'Free trial', paid: 'Paid', unknown: 'Pricing not stated' },
   access: { any: 'Any', noauth: 'No sign-up', account: 'Has accounts', waitlist: 'Waitlist', unknown: 'Access not stated' },
-  builders: { ai: 'Any AI builder', ai_likely: 'Looks AI-generated', nextjs: 'Next.js', react: 'React', wordpress: 'WordPress', wix: 'Wix', shopify: 'Shopify', webflow: 'Webflow', framer: 'Framer', lovable: 'Lovable', v0: 'v0', bolt: 'Bolt', base44: 'Base44' },
+  builders: { ai: 'Any AI builder', ai_likely: 'Looks AI-generated', nextjs: 'Next.js', wordpress: 'WordPress', wix: 'Wix', shopify: 'Shopify', framer: 'Framer', lovable: 'Lovable', v0: 'v0', bolt: 'Bolt', base44: 'Base44' },
   card: { details: 'Details', open: 'Site', compare: 'Compare', inCompare: 'Comparing', dr: 'DR', live: 'indexed', aiBuilt: 'AI builder', new: 'New', newWhy: 'Entered the index within the last 14 days of data' },
   newIn: { title: 'New in this category', range: (a, b) => (a === b ? `Latest additions to the index: ${a}` : `Latest additions to the index: ${a} – ${b}`), more: 'All by date added' },
   list: {
     shown: (a, b, total) => `Showing ${a}–${b} of ${total}`,
     deep: (n, scanned) => `${n} found among the first ${scanned} results (pricing and access are inferred from page text)`,
     empty: 'Nothing found. Try removing some filters.',
+    deepEmpty: 'No matches among the scanned sites. Not every page states its pricing or access — try removing the Access or Pricing filter.',
+    results: 'Results',
     error: 'FreeSerp is not responding. Please try again in a minute.',
     retry: 'Try again',
     loading: 'Loading…',
@@ -392,9 +402,10 @@ export const t = (lang) => STRINGS[lang] || STRINGS.uk;
 export const localePath = (lang, path) => (lang === 'en' ? `/en${path}` : path);
 
 export function fmtDate(iso, lang) {
-  if (!iso) return '—';
+  if (typeof iso !== 'string' || !iso) return '—';
   const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
+  // Never echo an unparsable value: callers put the result straight into HTML.
+  if (Number.isNaN(d.getTime())) return '—';
   return new Intl.DateTimeFormat(lang === 'uk' ? 'uk-UA' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(d);
 }
 

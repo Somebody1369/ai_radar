@@ -30,6 +30,9 @@ export function readState(sp) {
   const drMax = int(g('dr_max'), 0, 100); if (drMax !== undefined && g('dr_max') !== '' && drMax < 100) s.dr_max = drMax;
   if (DATE.test(g('from'))) s.from = g('from');
   if (DATE.test(g('to'))) s.to = g('to');
+  // Reversed ranges would always return nothing: swap them instead.
+  if (s.dr_min !== undefined && s.dr_max !== undefined && s.dr_min > s.dr_max) [s.dr_min, s.dr_max] = [s.dr_max, s.dr_min];
+  if (s.from && s.to && s.from > s.to) [s.from, s.to] = [s.to, s.from];
   if (PRICING.includes(g('pricing'))) s.pricing = g('pricing');
   if (ACCESS.includes(g('access'))) s.access = g('access');
   if (g('api') === '1') s.api = true;
@@ -50,18 +53,33 @@ export function writeState(s) {
 
 export const isDeep = (s) => Boolean(s.pricing || s.access || s.api || s.oss);
 
-export function toApiParams(cfg, s) {
+// A niche-based task switched to "all niches" searches AI startups by the task's keyword instead.
+const widened = (cfg, s) => s.cat === 'all' && Boolean(cfg.widenQ) && !cfg.preset.q;
+// "Relevance" only means something when there is a text query (preset, widening keyword or the user's).
+export const hasQuery = (cfg, s) => Boolean(cfg.preset.q || s.q || widened(cfg, s));
+// A typed query (or a widened task) defaults to relevance; otherwise each page keeps its own order.
+export const defaultSort = (cfg, s) => (s.q || widened(cfg, s) ? 'relevance' : cfg.sort);
+export function effectiveSort(cfg, s) {
+  const sort = s.sort || defaultSort(cfg, s);
+  return sort === 'relevance' && !hasQuery(cfg, s) ? 'dr' : sort;
+}
+
+// `nudge: false` gives the same request without the hint words, so the deep scan can merge both.
+export function toApiParams(cfg, s, { nudge = true } = {}) {
   const p = { ...cfg.preset };
   const deep = isDeep(s);
-  const words = [cfg.preset.q, s.q];
+  const words = [cfg.preset.q, widened(cfg, s) && cfg.widenQ, s.q];
   // Nudge the text search towards pages that can actually satisfy the heuristic filter.
-  if (deep && ['hasfree', 'free'].includes(s.pricing)) words.push('free');
-  if (deep && s.access === 'noauth') words.push('no sign up');
+  if (nudge && deep && ['hasfree', 'free'].includes(s.pricing)) words.push('free');
+  if (nudge && deep && s.access === 'noauth') words.push('no sign up');
   const q = words.filter(Boolean).join(' ').trim();
   if (q) p.q = q; else delete p.q;
 
-  if (s.cat === 'all') delete p.ai_categories;
-  else if (s.cat) {
+  if (s.cat === 'all') {
+    delete p.ai_categories;
+    // A task widened to every niche must stay inside the AI part of the index, not all 17M sites.
+    if (cfg.preset.ai_categories && !p.ai_startups && !p.category) p.ai_startups = 1;
+  } else if (s.cat) {
     p.ai_categories = s.cat;
     // A specific niche is a stronger filter than ai_startups, which drops media niches.
     delete p.ai_startups;
@@ -74,8 +92,7 @@ export function toApiParams(cfg, s) {
   if (s.from) p.from_date = s.from;
   if (s.to) p.to_date = s.to;
 
-  // A typed query defaults to relevance; otherwise each page keeps its own default order.
-  Object.assign(p, SORTS[s.sort || (s.q ? 'relevance' : cfg.sort)] || SORTS.relevance);
+  Object.assign(p, SORTS[effectiveSort(cfg, s)] || SORTS.dr);
   if (deep) { p.size = DEEP_SCAN_SIZE; p.from = 0; }
   else { p.size = PAGE_SIZE; p.from = ((s.page || 1) - 1) * PAGE_SIZE; }
   return p;

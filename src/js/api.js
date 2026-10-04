@@ -43,12 +43,15 @@ export const isBlocked = (s) => BLOCKLIST.test(`${s.domain} ${s.title || ''} ${s
 
 // Keep only what the UI needs; the page text is used for classification and then dropped.
 export function normalize(r) {
+  const categories = Array.isArray(r.ai_categories) ? r.ai_categories : r.ai_categories ? [r.ai_categories] : [];
   return {
     domain: r.domain,
     url: r.url || `https://${r.domain}`,
     title: r.title || r.domain,
     summary: r.ai_summary || '',
-    categories: Array.isArray(r.ai_categories) ? r.ai_categories : r.ai_categories ? [r.ai_categories] : [],
+    categories,
+    // Lookups use all=1 and can return any site (google.com): only call it an AI service when the API does.
+    isAi: r.category === 'ai' || categories.length > 0,
     source: r.ai_source || null,
     dr: typeof r.dr === 'number' ? r.dr : null,
     wentLive: r.went_live || null,

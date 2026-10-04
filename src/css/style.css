@@ -84,6 +84,11 @@ p { margin: 0 0 1em; }
 .nav a[aria-current='page'] { background: #fff; color: #161616; }
 .lang { display: inline-grid; place-items: center; min-width: 44px; height: 36px; padding: 0 12px; border-radius: var(--pill); border: 1px solid var(--line-strong); font-size: 13px; font-weight: 600; color: var(--text-2); }
 .lang:hover { background: var(--fill-hover); }
+.menu-btn { display: none; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: var(--pill); border: 1px solid var(--line-strong); background: transparent; color: var(--text); cursor: pointer; }
+.menu-btn:hover { background: var(--fill-hover); }
+.menu-btn .i-close, .menu-btn[aria-expanded='true'] .i-open { display: none; }
+.menu-btn[aria-expanded='true'] .i-close { display: block; }
+@keyframes menu { from { opacity: 0; transform: translateY(-6px); } }
 
 /* buttons & inputs: 100px radius */
 .btn {
@@ -168,6 +173,7 @@ input[type='search']::-webkit-search-cancel-button:hover { filter: brightness(1.
 .dd-list [role='option']:hover { background: transparent; }
 .dd-list [role='option'].is-active { background: var(--fill-hover); color: var(--text); }
 .dd-list [role='option'][aria-selected='true'] { color: var(--text); font-weight: 500; }
+.dd-list [role='option'][aria-disabled='true'] { opacity: 0.38; cursor: default; }
 .dd-check { color: var(--accent); }
 
 /* chips & badges */
@@ -391,9 +397,25 @@ tbody th { color: var(--text-3); font-weight: 500; width: 180px; white-space: no
 
 /* responsive */
 @media (max-width: 860px) {
-  .header-in { flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 10px; row-gap: 10px; }
-  .nav { order: 3; width: 100%; margin-left: 0; }
-  .lang { margin-left: auto; }
+  html.js { scroll-padding-top: 76px; }
+  .header-in { gap: 10px; }
+  .lang { margin-left: auto; height: 40px; }
+  /* Without JS the nav stays a scrollable row under the logo. */
+  html:not(.js) .header-in { flex-wrap: wrap; height: auto; padding-top: 10px; padding-bottom: 10px; row-gap: 10px; }
+  html:not(.js) .nav { order: 3; width: 100%; margin-left: 0; }
+  /* With JS: one row (logo · language · burger), the nav opens as a panel under the header. */
+  .js .header-in { height: 60px; }
+  .js .menu-btn { display: inline-grid; }
+  .js .header.is-open { background: var(--bg); }
+  .js .nav {
+    display: none; position: absolute; top: 100%; left: 0; right: 0;
+    flex-direction: column; gap: 4px; margin: 0; padding: 8px 0 20px; padding-inline: inherit;
+    border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
+    background: var(--bg); box-shadow: 0 24px 40px rgba(0, 0, 0, 0.45);
+  }
+  .js .header.is-open .nav { display: flex; animation: menu .18s ease-out; }
+  .js .nav a { padding: 13px 18px; font-size: 16px; }
+  .js .nav a:not([aria-current]) { color: var(--text); }
   .stats { grid-template-columns: repeat(2, 1fr); }
   .filters { position: static; }
 }
@@ -424,4 +446,32 @@ tbody th { color: var(--text-3); font-weight: 500; width: 180px; white-space: no
   .cmpbar-items, .cmpbar-note, .cmpbar-clear-text { display: none; }
   .cmpbar-label { font-size: 13px; margin-right: auto; }
   .badge[data-why]::after { max-width: 220px; }
+
+  /* tighter spacing on phones */
+  .page-head { padding: 16px 0 20px; }
+  .stat { padding: 16px 18px; }
+  .tile { padding: 12px 14px; gap: 12px; }
+  .tile .tile-icon { width: 40px; height: 40px; border-radius: 12px; }
+  .card { padding: 16px; gap: 12px; }
+  .honest { padding: 20px; }
+  .fact { padding: 14px 16px; }
+  .site-head { gap: 14px; }
+  .site-actions { width: 100%; }
+  .site-actions .btn { flex: 1; }
+  .tabpanel .grid > .card:nth-child(n+4) { display: none; } /* "all new" link covers the rest */
+
+  /* filters: sort gets a full row; builder too unless the TLD select sits next to it */
+  .filters { padding: 10px; }
+  .filters-row > .field:has(select[name='sort']),
+  .filters-row > .field:has(select[name='builder']):not(:has(+ .field select[name='tld'])) { grid-column: 1 / -1; }
+
+  /* compare: narrow sticky label column so a site column fits next to it */
+  th, td { padding: 12px 14px; }
+  tbody th { width: auto; min-width: 104px; white-space: normal; }
+  .compare th:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); box-shadow: 1px 0 0 var(--line); }
+  .compare thead th:first-child { background: var(--surface-2); }
+  .compare td, .compare thead th { min-width: 170px; }
+  .compare thead th:first-child { min-width: 0; }
+  .cmp-head { flex-wrap: wrap; justify-content: space-between; row-gap: 8px; }
+  .cmp-head a { order: 3; flex-basis: 100%; }
 }

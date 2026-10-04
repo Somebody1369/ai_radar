@@ -4,7 +4,7 @@ import { search, lookup, suggest, setCache } from './api.js';
 import { matchesMetaFilters } from './classify.js';
 import { t, localePath, fmtNum, taskName, categoryName } from './i18n.js';
 import { grid, pagination, message, skeleton, resultsMeta, siteDetail, compareTable, favicon, esc, icon, sitePath, categoryHref, setLatest } from './templates.js';
-import { readState, writeState, isDeep, toApiParams, pageCount } from './listing.js';
+import { readState, writeState, isDeep, hasQuery, defaultSort, effectiveSort, toApiParams, pageCount } from './listing.js';
 
 const lang = document.body.dataset.lang === 'en' ? 'en' : 'uk';
 const L = t(lang);
@@ -36,10 +36,12 @@ document.addEventListener('error', (e) => {
   if (img instanceof HTMLImageElement && img.parentElement?.classList.contains('fav')) img.parentElement.classList.add('fav-fallback');
 }, true);
 // Google returns a 16px globe for unknown domains; treat tiny images as missing too.
-document.addEventListener('load', (e) => {
-  const img = e.target;
-  if (img instanceof HTMLImageElement && img.parentElement?.classList.contains('fav') && img.naturalWidth <= 16) img.parentElement.classList.add('fav-fallback');
-}, true);
+const checkFav = (img) => {
+  if (img.parentElement?.classList.contains('fav') && img.complete && img.naturalWidth <= 16) img.parentElement.classList.add('fav-fallback');
+};
+document.addEventListener('load', (e) => { if (e.target instanceof HTMLImageElement) checkFav(e.target); }, true);
+// Images that finished before this module ran never fire the listeners above.
+document.querySelectorAll('.fav img').forEach(checkFav);
 
 // ---------- language switch keeps the current path and query ----------
 const switcher = document.querySelector('[data-lang-switch]');
@@ -48,15 +50,39 @@ if (switcher) {
   switcher.href = (lang === 'uk' ? `/en${neutral}` : neutral) + location.search;
 }
 
+// ---------- mobile menu (the burger is shown by CSS only on narrow screens) ----------
+const header = document.querySelector('.header');
+const menuBtn = header?.querySelector('[data-menu]');
+if (menuBtn) {
+  const setMenu = (open) => {
+    header.classList.toggle('is-open', open);
+    menuBtn.setAttribute('aria-expanded', String(open));
+  };
+  menuBtn.addEventListener('click', () => setMenu(menuBtn.getAttribute('aria-expanded') !== 'true'));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && header.classList.contains('is-open')) { setMenu(false); menuBtn.focus(); }
+  });
+  document.addEventListener('pointerdown', (e) => { if (!header.contains(e.target)) setMenu(false); });
+  matchMedia('(min-width: 861px)').addEventListener('change', (e) => { if (e.matches) setMenu(false); });
+  // A page restored from the back/forward cache must not come back with the menu open.
+  addEventListener('pageshow', () => setMenu(false));
+}
+
 // ---------- compare store ----------
 const KEY = 'airadar.compare';
+// Unicode letters too: the API returns some IDN domains in their Unicode form.
+const DOMAIN = /^[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)+$/u;
 const compare = {
   get() {
-    try { return (JSON.parse(localStorage.getItem(KEY)) || []).slice(0, 3); } catch { return []; }
+    try {
+      const v = JSON.parse(localStorage.getItem(KEY));
+      // Storage is user-editable: keep only well-formed domains.
+      return Array.isArray(v) ? v.filter((d) => typeof d === 'string' && DOMAIN.test(d)).slice(0, 3) : [];
+    } catch { return []; }
   },
-  set(list) {
+  set(list, { quiet = false } = {}) {
     try { localStorage.setItem(KEY, JSON.stringify(list.slice(0, 3))); } catch { /* ignore */ }
-    document.dispatchEvent(new CustomEvent('compare:change'));
+    if (!quiet) document.dispatchEvent(new CustomEvent('compare:change'));
   },
   toggle(domain) {
     const list = compare.get();
@@ -130,7 +156,8 @@ function localMatches(q) {
 // FreeSerp matches whole words only ("suno" finds suno.com, "su" does not), so known sites from the
 // build-time index are matched by prefix locally and API results are appended after them.
 let siteIndex;
-const loadIndex = () => (siteIndex ??= fetch('/assets/sites-index.json').then((r) => r.json()).catch(() => []));
+// Lives next to the versioned assets folder, so resolve it from this module's own URL.
+const loadIndex = () => (siteIndex ??= fetch(new URL('../sites-index.json', import.meta.url)).then((r) => r.json()).catch(() => []));
 
 async function siteMatches(q, preset, signal) {
   const n = lower(q);
@@ -284,7 +311,7 @@ function customSelect(select) {
     let i = 0;
     const optHtml = (o) => {
       const sel = o.selected;
-      return `<li role="option" id="${id}-${i}" data-i="${i++}" aria-selected="${sel}">${esc(o.textContent)}${sel ? icon('check', 'icon icon-sm dd-check') : ''}</li>`;
+      return `<li role="option" id="${id}-${i}" data-i="${i++}" aria-selected="${sel}"${o.disabled ? ' aria-disabled="true"' : ''}>${esc(o.textContent)}${sel ? icon('check', 'icon icon-sm dd-check') : ''}</li>`;
     };
     list.innerHTML = [...select.children].map((el) => (el.tagName === 'OPTGROUP'
       ? `<li class="ac-group" role="presentation">${esc(el.label)}</li>${[...el.children].map(optHtml).join('')}`
@@ -336,7 +363,7 @@ function customSelect(select) {
   function choose(i) {
     const opt = options()[i];
     close();
-    if (!opt || opt.selected) return;
+    if (!opt || opt.selected || opt.disabled) return;
     select.value = opt.value;
     select.dispatchEvent(new Event('change', { bubbles: true }));
   }
@@ -371,6 +398,9 @@ function customSelect(select) {
     if (li && Number(li.dataset.i) !== active) setActive(Number(li.dataset.i));
   });
   list.addEventListener('click', (e) => {
+    // The list sits inside the field's <label>: without this the label forwards the click to the
+    // button and the list opens again right after a choice.
+    e.preventDefault();
     const li = e.target.closest('[role="option"]');
     if (li) choose(Number(li.dataset.i));
   });
@@ -437,14 +467,22 @@ function initList(root) {
   let state = readState(new URLSearchParams(location.search));
   let ctrl;
   let timer;
+  // One persistent live region: the results markup is replaced wholesale, which screen readers skip.
+  const status = document.createElement('p');
+  status.className = 'sr-only';
+  status.setAttribute('aria-live', 'polite');
+  root.append(status);
 
-  const effectiveSort = (s) => s.sort || (s.q ? 'relevance' : cfg.sort);
+  // "Relevance" is offered only while there is a query to be relevant to.
+  const relevance = form.querySelector('select[name="sort"] option[value="relevance"]');
+  const syncRelevance = (s) => { if (relevance) relevance.disabled = !hasQuery(cfg, s); };
 
   function syncForm(s) {
+    syncRelevance(s);
     for (const el of form.elements) {
       if (!el.name) continue;
       if (el.type === 'checkbox') el.checked = Boolean(s[el.name]);
-      else if (el.name === 'sort') el.value = effectiveSort(s);
+      else if (el.name === 'sort') el.value = effectiveSort(cfg, s);
       else if (el.name === 'cat') el.value = s.cat === 'all' ? '' : s.cat ?? presetCat;
       else el.value = s[el.name] ?? '';
     }
@@ -464,8 +502,24 @@ function initList(root) {
       else if (cat === '') sp.set('cat', 'all');
     }
     const s = readState(sp);
-    if (s.sort && s.sort === (s.q ? 'relevance' : cfg.sort)) delete s.sort;
+    // The select always shows the current default; it is a choice only once the visitor changes it,
+    // so a new query or "all niches" can still switch the default (e.g. to relevance).
+    if (!state.sort && s.sort === effectiveSort(cfg, state)) delete s.sort;
+    if (s.sort === 'relevance' && !hasQuery(cfg, s)) delete s.sort;
+    if (s.sort && s.sort === defaultSort(cfg, s)) delete s.sort;
     return s;
+  }
+
+  // Deep (pricing/access) filters scan the hinted query ("… free", "… no sign up") and the plain one
+  // together: the hint finds pages that state it, the plain query keeps tools that phrase it differently.
+  async function fetchList(s, signal) {
+    const params = toApiParams(cfg, s);
+    const plain = toApiParams(cfg, s, { nudge: false });
+    if (!isDeep(s) || plain.q === params.q) return search(params, { signal });
+    const [a, b] = await Promise.all([search(params, { signal }), search(plain, { signal })]);
+    const seen = new Set();
+    const results = [...a.results, ...b.results].filter((x) => !seen.has(x.domain) && seen.add(x.domain));
+    return { total: results.length, results, hidden: a.hidden + b.hidden };
   }
 
   const hrefFor = (s) => (n) => {
@@ -475,6 +529,9 @@ function initList(root) {
 
   async function load(s, { push = false, scroll = false } = {}) {
     state = s;
+    // Typing a query changes the default order: keep the sort control in step with what is loaded.
+    syncRelevance(s);
+    if (form.elements.sort) form.elements.sort.value = effectiveSort(cfg, s);
     const qs = writeState(s);
     const url = cfg.base + (qs ? `?${qs}` : '');
     if (url !== location.pathname + location.search) history[push ? 'pushState' : 'replaceState'](null, '', url);
@@ -489,7 +546,7 @@ function initList(root) {
     if (scroll) root.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     try {
-      const data = await search(toApiParams(cfg, s), { signal: ctrl.signal });
+      const data = await fetchList(s, ctrl.signal);
       let html;
       if (isDeep(s)) {
         const matched = data.results.filter((x) => matchesMetaFilters(x.meta, s));
@@ -497,22 +554,25 @@ function initList(root) {
         const page = Math.min(s.page || 1, pages);
         const slice = matched.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
         html = resultsMeta(L.list.deep(matched.length, data.results.length + data.hidden))
-          + (slice.length ? grid(slice, lang) : message(L.list.empty))
+          + (slice.length ? grid(slice, lang) : message(data.results.length ? L.list.deepEmpty : L.list.empty))
           + pagination(page, pages, hrefFor(s), lang);
-      } else if (!data.results.length) {
+      } else if (!data.results.length && !data.hidden) {
         html = message(L.list.empty);
       } else {
+        // A page can be fully hidden by the blocklist; keep the pagination so later pages stay reachable.
         const page = s.page || 1;
         const from = (page - 1) * PAGE_SIZE;
         html = resultsMeta(L.list.shown(from + 1, from + data.results.length + data.hidden, fmtNum(data.total, lang)))
-          + grid(data.results, lang)
+          + (data.results.length ? grid(data.results, lang) : message(L.list.empty))
           + pagination(page, pageCount(data.total), hrefFor(s), lang);
       }
       results.innerHTML = html;
+      status.textContent = results.querySelector('.results-meta, .msg')?.textContent || '';
       syncCompareButtons();
     } catch (e) {
       if (e.name === 'AbortError') return;
       results.innerHTML = message(L.list.error, { retry: true, lang });
+      status.textContent = L.list.error;
     } finally {
       results.classList.remove('is-loading');
       results.removeAttribute('aria-busy');
@@ -532,6 +592,7 @@ function initList(root) {
   });
   form.addEventListener('input', (e) => {
     if (e.target.type !== 'search') return;
+    syncRelevance({ ...state, q: e.target.value.trim() });
     clearTimeout(timer);
     timer = setTimeout(() => load(readForm()), 450);
   });
@@ -589,18 +650,21 @@ if (siteEl?.hasAttribute('data-prerendered')) {
   loadSimilar(similarEl, similarEl.dataset.domain, similarEl.dataset.cat);
 } else if (siteEl) {
   const m = location.pathname.match(/\/site\/([^/]+)/);
-  const domain = m ? decodeURIComponent(m[1]).toLowerCase() : '';
+  let domain = '';
+  try { domain = m ? decodeURIComponent(m[1]).toLowerCase() : ''; } catch { domain = m[1]; /* malformed %-escape */ }
+  const notFound = () => {
+    document.title = L.site.notFound;
+    siteEl.innerHTML = `${message(L.site.notFound)}<p><a class="btn btn-ghost" href="${localePath(lang, '/sites/')}">${L.site.back}</a></p>`;
+  };
   if (!domain) location.replace(localePath(lang, '/sites/'));
+  else if (!DOMAIN.test(domain)) notFound();
   else {
     lookup(domain).then((s) => {
-      if (!s) {
-        document.title = L.site.notFound;
-        siteEl.innerHTML = `${message(L.site.notFound)}<p><a class="btn btn-ghost" href="${localePath(lang, '/sites/')}">${L.site.back}</a></p>`;
-        return;
-      }
+      if (!s) { notFound(); return; }
       siteEl.innerHTML = siteDetail(s, lang);
       document.title = L.site.title(s);
       document.querySelector('meta[name="description"]')?.setAttribute('content', s.summary.slice(0, 158));
+      document.querySelector('link[rel="canonical"]')?.setAttribute('href', location.origin + sitePath(lang, s.domain));
       syncCompareButtons();
       loadSimilar(similarEl, s.domain, s.categories[0]);
     }).catch(() => { siteEl.innerHTML = message(L.list.error, { retry: false, lang }); });
@@ -612,18 +676,27 @@ const view = document.querySelector('[data-compare-view]');
 if (view) {
   const note = document.querySelector('[data-cmp-note]');
   const addForm = document.querySelector('[data-cmp-add]');
-  const DOMAIN = /^[a-z0-9.-]+\.[a-z]{2,}$/;
   const fromUrl = (new URLSearchParams(location.search).get('d') || '').split(',').map((d) => d.trim().toLowerCase()).filter((d) => DOMAIN.test(d)).slice(0, 3);
   if (fromUrl.length) compare.set(fromUrl);
 
+  let renderId = 0;
   const render = async () => {
+    const id = ++renderId;
     const list = compare.get();
     history.replaceState(null, '', compareHref(list));
+    note.textContent = '';
     if (!list.length) { view.innerHTML = message(L.compare.empty); return; }
     view.innerHTML = compareTable(list.map((domain) => ({ domain })), lang);
-    const found = await Promise.all(list.map((d) => lookup(d).catch(() => null)));
-    const missing = list.filter((d, i) => !found[i]);
-    if (missing.length) note.textContent = missing.map(L.compare.notFound).join(' · ');
+    // null = not in the index, undefined = request failed (keep it: the next visit may succeed).
+    const found = await Promise.all(list.map((d) => lookup(d).catch(() => undefined)));
+    if (id !== renderId) return; // a newer change already re-rendered
+    const missing = list.filter((d, i) => found[i] === null);
+    if (missing.length) {
+      note.textContent = missing.map(L.compare.notFound).join(' · ');
+      // Drop them from the list: they have no column, so they could not be removed otherwise.
+      compare.set(list.filter((d) => !missing.includes(d)), { quiet: true });
+      history.replaceState(null, '', compareHref(compare.get()));
+    }
     const sites = found.filter(Boolean);
     view.innerHTML = sites.length ? compareTable(sites, lang) : message(L.compare.empty);
   };

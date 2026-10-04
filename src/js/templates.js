@@ -8,7 +8,7 @@ const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '#');
 let latestDate = null;
 export const setLatest = (d) => { latestDate = d || null; };
 export const isNew = (s) => Boolean(latestDate && s.wentLive && Date.parse(latestDate) - Date.parse(s.wentLive) <= 13 * 864e5);
-const newBadge = (s, lang) => (isNew(s) ? `<span class="badge b-new" tabindex="0" data-why="${esc(t(lang).card.newWhy)}">${esc(t(lang).card.new)}</span>` : '');
+const newBadge = (s, lang) => (isNew(s) ? `<span class="badge b-new" tabindex="0" data-why="${esc(t(lang).card.newWhy)}">${esc(t(lang).card.new)}<span class="sr-only">. ${esc(t(lang).card.newWhy)}</span></span>` : '');
 
 // ai_source mixes builder ids (lovable) with raw generator tags ("gen:gridsome v0.7.23").
 // `not_ai` is the API's "no builder detected" marker, not something to show.
@@ -41,6 +41,7 @@ const ICON_PATHS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   check: '<path d="m5 12 5 5L20 7"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
   columns: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M9 3v18M15 3v18"/>',
   radar: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12 19 5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/>',
 };
@@ -61,18 +62,20 @@ function whyText(lang, list) {
   return list?.length ? `${t(lang).why.title}: «${list.join('», «')}»` : t(lang).why.none;
 }
 
-export const pricingBadge = (meta, lang) =>
-  `<span class="badge b-${meta.pricing}" tabindex="0" data-why="${esc(whyText(lang, meta.evidence.pricing))}">${esc(t(lang).pricing[meta.pricing])}</span>`;
+// The tooltip is CSS-only (data-why), so the same text is repeated for screen readers.
+const whyBadge = (cls, label, why) =>
+  `<span class="badge ${cls}" tabindex="0" data-why="${esc(why)}">${esc(label)}<span class="sr-only">. ${esc(why)}</span></span>`;
 
-export const accessBadge = (meta, lang) =>
-  `<span class="badge a-${meta.access}" tabindex="0" data-why="${esc(whyText(lang, meta.evidence.access))}">${esc(t(lang).access[meta.access])}</span>`;
+export const pricingBadge = (meta, lang) => whyBadge(`b-${meta.pricing}`, t(lang).pricing[meta.pricing], whyText(lang, meta.evidence.pricing));
+
+export const accessBadge = (meta, lang) => whyBadge(`a-${meta.access}`, t(lang).access[meta.access], whyText(lang, meta.evidence.access));
 
 export function badges(meta, lang, { source, withUnknown = true } = {}) {
   const out = [];
   if (meta.pricing !== 'unknown' || withUnknown) out.push(pricingBadge(meta, lang));
   if (meta.access !== 'unknown' || withUnknown) out.push(accessBadge(meta, lang));
-  if (meta.api) out.push(`<span class="badge b-tag" tabindex="0" data-why="${esc(whyText(lang, meta.evidence.api))}">API</span>`);
-  if (meta.opensource) out.push(`<span class="badge b-tag" tabindex="0" data-why="${esc(whyText(lang, meta.evidence.opensource))}">Open source</span>`);
+  if (meta.api) out.push(whyBadge('b-tag', 'API', whyText(lang, meta.evidence.api)));
+  if (meta.opensource) out.push(whyBadge('b-tag', 'Open source', whyText(lang, meta.evidence.opensource)));
   if (source && AI_BUILDERS.includes(source)) out.push(`<span class="badge b-ai">${icon('sparkles', 'icon icon-xs')}${esc(t(lang).builders[source] || source)}</span>`);
   return out.join('');
 }
@@ -89,7 +92,7 @@ export function card(s, lang) {
     </div>
     <span class="dr" title="Domain Rating">${L.card.dr} ${s.dr ?? '—'}</span>
   </div>
-  <p class="card-summary">${esc(s.summary)}</p>
+  <p class="card-summary" lang="en">${esc(s.summary)}</p>
   <div class="badges">${newBadge(s, lang)}${badges(s.meta, lang, { source: s.source, withUnknown: false })}</div>
   ${cats ? `<div class="chips">${cats}</div>` : ''}
   <div class="card-foot">
@@ -160,7 +163,7 @@ export function siteDetail(s, lang) {
       <button type="button" class="btn btn-ghost" data-compare="${esc(s.domain)}" aria-pressed="false">${icon('plus', 'icon icon-sm')}<span>${L.card.compare}</span></button>
     </div>
   </div>
-  <p class="site-summary">${esc(s.summary)}</p>
+  <p class="site-summary" lang="en">${esc(s.summary)}</p>
   <div class="badges badges-lg">${newBadge(s, lang)}${badges(s.meta, lang, { source: s.source })}</div>
   <h2 class="h3">${S.facts}</h2>
   <dl class="facts">
@@ -194,7 +197,7 @@ export function compareTable(sites, lang) {
     [S.stack, (s) => esc(builderName(s.source, lang))],
     [S.server, (s) => esc(s.server || '—')],
     [S.wentLive, (s) => fmtDate(s.wentLive, lang)],
-    [L.compare.summary, (s) => `<span class="small">${esc(s.summary)}</span>`],
+    [L.compare.summary, (s) => `<span class="small" lang="en">${esc(s.summary)}</span>`],
   ];
   return `<div class="table-wrap"><table class="compare">
   <thead><tr><th scope="col"></th>${sites.map((s) => `<th scope="col">
@@ -211,6 +214,6 @@ export function nicheOptions(lang, selected = '', anyLabel = t(lang).filters.all
   return `<option value="">${esc(anyLabel)}</option>${[...ALL_CATEGORIES].sort(byName).map(opt).join('')}`;
 }
 
-export const resultsMeta = (text) => `<p class="results-meta" aria-live="polite">${esc(text)}</p>`;
+export const resultsMeta = (text) => `<p class="results-meta">${esc(text)}</p>`;
 
 export { fmtNum };
