@@ -5,12 +5,11 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { TASKS, NICHES, ALL_CATEGORIES, BUILDERS, TLDS, PAGE_SIZE, slugify } from '../src/js/config.js';
+import { TASKS, NICHES, BUILDERS, TLDS, PAGE_SIZE, slugify } from '../src/js/config.js';
 import { search, stats, setCache } from '../src/js/api.js';
 import { LANGS, t, taskName, taskDesc, categoryName, fmtDate, fmtNum, localePath } from '../src/js/i18n.js';
-import { esc, icon, grid, card, pagination, resultsMeta, siteDetail, sitePath, message } from '../src/js/templates.js';
+import { esc, icon, grid, pagination, resultsMeta, siteDetail, sitePath, message, nicheOptions } from '../src/js/templates.js';
 import { toApiParams, pageCount } from '../src/js/listing.js';
-import { planHtml } from './plan-content.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -50,10 +49,11 @@ async function safe(label, fn) {
 }
 
 const LIST = {
-  catalog: { preset: { ai_startups: 1 }, sort: 'new', base: '/sites/', filters: ['q', 'pricing', 'access', 'sort', 'cat', 'builder', 'tld', 'dr', 'dates', 'flags'] },
-  task: (task) => ({ preset: { ...task.params }, sort: task.params.q ? 'relevance' : 'dr', base: `/tools/${task.slug}/`, filters: ['q', 'pricing', 'access', 'sort', 'builder', 'dr', 'flags'] }),
-  niche: (name) => ({ preset: { ai_categories: name }, sort: 'dr', base: `/niche/${slugify(name)}/`, filters: ['q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'flags'] }),
-  fresh: (from, to) => ({ preset: { ai_startups: 1, from_date: from, to_date: to }, sort: 'dr', base: '/new/', filters: ['q', 'pricing', 'access', 'sort', 'cat', 'builder', 'flags'] }),
+  catalog: { preset: { ai_startups: 1 }, sort: 'new', base: '/sites/', filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'dates', 'flags'] },
+  task: (task) => ({ preset: { ...task.params }, sort: task.params.q ? 'relevance' : 'dr', base: `/tools/${task.slug}/`, filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'dr', 'flags'] }),
+  // On niche pages the niche select switches to another niche page instead of filtering in place.
+  niche: (name) => ({ preset: { ai_categories: name }, sort: 'dr', base: `/niche/${slugify(name)}/`, nicheNav: true, filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'tld', 'dr', 'flags'] }),
+  fresh: (from, to) => ({ preset: { ai_startups: 1, from_date: from, to_date: to }, sort: 'dr', base: '/new/', filters: ['cat', 'q', 'pricing', 'access', 'sort', 'builder', 'flags'] }),
 };
 
 const fetchList = (cfg, label) => safe(label, () => search(toApiParams(cfg, {})));
@@ -102,7 +102,7 @@ function layout({ lang, pathname, title, description, body, active = '', robots 
   const other = lang === 'uk' ? 'en' : 'uk';
   const canonical = SITE + localePath(lang, pathname);
   if (indexable && lang === 'uk') sitemap.push(pathname);
-  const nav = [['tools', '/tools/'], ['catalog', '/sites/'], ['new', '/new/'], ['compare', '/compare/'], ['plan', '/plan/']];
+  const nav = [['tools', '/tools/'], ['catalog', '/sites/'], ['new', '/new/'], ['compare', '/compare/']];
   return `<!doctype html>
 <html lang="${lang}">
 <head>
@@ -180,13 +180,13 @@ function filtersForm(cfg, lang) {
   const sorts = cfg.preset.q || has('q') ? ['relevance', 'new', 'dr'] : ['new', 'dr'];
 
   const primary = [];
+  if (has('cat')) primary.push(`<label class="field field-niche"><span class="field-label">${F.niche}</span><select name="cat" class="input">${nicheOptions(lang, cfg.preset.ai_categories || '')}</select></label>`);
   if (has('q')) primary.push(`<label class="field field-q"><span class="field-label">${F.q}</span><span class="input-icon">${icon('search', 'icon icon-sm')}<input class="input" type="search" name="q" placeholder="${esc(cfg.preset.q ? F.qRefinePh : F.qPh)}" autocomplete="off"></span></label>`);
   if (has('pricing')) primary.push(select('pricing', F.pricing, opt('', L.pricing.any) + ['hasfree', 'free', 'freemium', 'trial', 'paid'].map((v) => opt(v, L.pricing[v])).join('')));
   if (has('access')) primary.push(select('access', F.access, opt('', L.access.any) + ['noauth', 'account', 'waitlist'].map((v) => opt(v, L.access[v])).join('')));
   if (has('sort')) primary.push(select('sort', F.sort, sorts.map((v) => opt(v, L.sort[v], v === cfg.sort)).join('')));
 
   const more = [];
-  if (has('cat')) more.push(select('cat', F.niche, opt('', F.any) + [...ALL_CATEGORIES].sort((a, b) => categoryName(a, lang).localeCompare(categoryName(b, lang), lang)).map((c) => opt(c, categoryName(c, lang))).join('')));
   if (has('builder')) more.push(select('builder', F.builder, opt('', F.anyF) + BUILDERS.map((b) => opt(b, L.builders[b])).join('')));
   if (has('tld')) more.push(select('tld', F.tld, opt('', F.anyF) + TLDS.map((d) => opt(d, `.${d}`)).join('')));
   if (has('dr')) more.push(`<label class="field field-num"><span class="field-label">${F.dr}</span><input class="input" type="number" name="dr_min" min="0" max="100" inputmode="numeric" placeholder="0"></label><label class="field field-num"><span class="field-label">${F.drTo}</span><input class="input" type="number" name="dr_max" min="0" max="100" inputmode="numeric" placeholder="100"></label>`);
@@ -213,7 +213,7 @@ function listSection(cfg, data, lang) {
     const href = (n) => `${localePath(lang, cfg.base)}?page=${n}`;
     inner = resultsMeta(L.list.shown(1, Math.min(PAGE_SIZE, data.total), fmtNum(data.total, lang))) + grid(data.results, lang) + pagination(1, pages, href, lang);
   }
-  return `<section class="list" data-list="${esc(JSON.stringify({ preset: cfg.preset, sort: cfg.sort, base: localePath(lang, cfg.base) }))}"${data ? '' : ' data-empty'}>
+  return `<section class="list" data-list="${esc(JSON.stringify({ preset: cfg.preset, sort: cfg.sort, base: localePath(lang, cfg.base), nicheNav: Boolean(cfg.nicheNav) }))}"${data ? '' : ' data-empty'}>
   ${filtersForm(cfg, lang)}
   <div class="results" data-results>${inner}</div>
 </section>`;
@@ -257,10 +257,11 @@ for (const lang of LANGS) {
   const homeBody = `
 <section class="hero">
   ${total ? `<p class="eyebrow">${icon('radar', 'icon icon-xs')}${esc(H.eyebrow(fmtNum(total, lang), fmtDate(latest, lang)))}</p>` : ''}
-  <h1 class="display">${H.h1a} <em>${H.h1em}</em> ${H.h1b}</h1>
+  <h1 class="display">${H.h1}</h1>
   <p class="lead">${H.lead}</p>
-  <form class="hero-search" action="${localePath(lang, '/sites/')}" method="get" role="search">
-    <span class="input-icon">${icon('search', 'icon icon-sm')}<input class="input input-lg" type="search" name="q" placeholder="${esc(H.searchPh)}" aria-label="${esc(H.searchBtn)}" required></span>
+  <form class="hero-search" action="${localePath(lang, '/sites/')}" method="get" role="search" data-hero-search>
+    <label class="hero-niche"><span class="sr-only">${L.filters.niche}</span><select class="input input-lg" name="cat">${nicheOptions(lang)}</select></label>
+    <span class="input-icon">${icon('search', 'icon icon-sm')}<input class="input input-lg" type="search" name="q" placeholder="${esc(H.searchPh)}" aria-label="${esc(H.searchBtn)}" autocomplete="off"></span>
     <button class="btn btn-primary btn-lg">${H.searchBtn}</button>
   </form>
   <div class="hero-chips"><span class="muted small">${H.popular}</span>${popular.map((s) => `<a class="chip" href="${localePath(lang, `/tools/${s}/`)}">${esc(taskName(s, lang))}</a>`).join('')}</div>
@@ -273,7 +274,6 @@ ${section(H.nichesTitle, '', '', `<div class="niche-grid">${niches.map(({ name, 
 <section class="section honest">
   <h2 class="h3">${H.honestTitle}</h2>
   <ul>${H.honest.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
-  <a class="link-more" href="${localePath(lang, '/plan/')}#data">${H.honestMore}${icon('arrow', 'icon icon-xs')}</a>
 </section>`;
   await writePage(lang, '/', layout({
     lang, pathname: '/', title: H.title, description: H.description, body: homeBody,
@@ -347,16 +347,9 @@ ${listSection(cfg, data, lang)}
   await writePage(lang, '/compare/', layout({
     lang, pathname: '/compare/', title: L.compare.title, description: L.compare.description, active: 'compare', ld: [cmpCrumbs.ld],
     body: `${cmpCrumbs.html}${pageHead(L.compare.h1, L.compare.lead)}
-<form class="cmp-add" data-cmp-add><span class="input-icon">${icon('plus', 'icon icon-sm')}<input class="input" name="domain" placeholder="${esc(L.compare.addPh)}" aria-label="${esc(L.compare.addPh)}" autocomplete="off" required></span><button class="btn btn-primary">${L.compare.add}</button></form>
+<form class="cmp-add" data-cmp-add><label class="cmp-niche"><span class="sr-only">${L.filters.niche}</span><select class="input" name="cat">${nicheOptions(lang)}</select></label><span class="input-icon">${icon('plus', 'icon icon-sm')}<input class="input" name="domain" placeholder="${esc(L.compare.addPh)}" aria-label="${esc(L.compare.addPh)}" autocomplete="off" required></span><button class="btn btn-primary">${L.compare.add}</button></form>
 <p class="small muted" data-cmp-note aria-live="polite"></p>
 <div data-compare-view></div>`,
-  }));
-
-  // Plan
-  const planCrumbs = breadcrumbs(lang, [{ name: L.nav.plan, path: '/plan/' }]);
-  await writePage(lang, '/plan/', layout({
-    lang, pathname: '/plan/', title: L.plan.title, description: L.plan.description, active: 'plan', ld: [planCrumbs.ld],
-    body: `${planCrumbs.html}<article class="prose">${planHtml(lang, { tasks: TASKS.length, niches: NICHES.length, latest: fmtDate(latest, lang) })}</article>`,
   }));
 
   // 404
@@ -377,6 +370,8 @@ ${sitemap.flatMap((p) => LANGS.map((l) => urlEntry(p, l))).join('\n')}
 await writeFile(path.join(DIST, 'robots.txt'), `User-agent: *\nAllow: /\nDisallow: /site/$\nDisallow: /en/site/$\n\nSitemap: ${SITE}/sitemap.xml\n`);
 
 await cp(path.join(ROOT, 'src/js'), path.join(DIST, 'assets/js'), { recursive: true });
+// Compact index of every prerendered site for instant prefix suggestions (the API has no prefix search).
+await writeFile(path.join(DIST, 'assets/sites-index.json'), JSON.stringify([...sites.values()].map((s) => [s.domain, s.title.slice(0, 90), s.dr, s.categories])));
 await cp(path.join(ROOT, 'src/css'), path.join(DIST, 'assets/css'), { recursive: true });
 await cp(path.join(ROOT, 'src/static'), DIST, { recursive: true });
 

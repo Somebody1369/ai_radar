@@ -1,9 +1,9 @@
 // Client entry: progressive enhancement on top of the prerendered pages.
-import { PAGE_SIZE } from './config.js';
-import { search, lookup, setCache } from './api.js';
+import { PAGE_SIZE, TASKS, NICHES, ALL_CATEGORIES, slugify } from './config.js';
+import { search, lookup, suggest, setCache } from './api.js';
 import { matchesMetaFilters } from './classify.js';
-import { t, localePath, fmtNum } from './i18n.js';
-import { grid, pagination, message, skeleton, resultsMeta, siteDetail, compareTable, favicon, esc, icon } from './templates.js';
+import { t, localePath, fmtNum, taskName, categoryName } from './i18n.js';
+import { grid, pagination, message, skeleton, resultsMeta, siteDetail, compareTable, favicon, esc, icon, sitePath, categoryHref } from './templates.js';
 import { readState, writeState, isDeep, toApiParams, pageCount } from './listing.js';
 
 const lang = document.body.dataset.lang === 'en' ? 'en' : 'uk';
@@ -109,12 +109,155 @@ document.addEventListener('click', (e) => {
 syncCompareButtons();
 renderBar();
 
+// ---------- search suggestions ----------
+const lower = (x) => String(x).toLowerCase();
+
+// Tasks and niches are matched locally in both languages, so "музика" and "music" both work.
+function localMatches(q) {
+  const n = lower(q);
+  const tasks = TASKS
+    .filter((tk) => [taskName(tk.slug, 'uk'), taskName(tk.slug, 'en'), tk.slug].some((v) => lower(v).includes(n)))
+    .slice(0, 3)
+    .map((tk) => ({ type: 'task', label: taskName(tk.slug, lang), icon: tk.icon, href: localePath(lang, `/tools/${tk.slug}/`) }));
+  const niches = ALL_CATEGORIES
+    .filter((c) => [c, categoryName(c, 'uk')].some((v) => lower(v).includes(n)))
+    .slice(0, 3)
+    .map((c) => ({ type: 'niche', label: categoryName(c, lang), icon: 'grid', href: categoryHref(lang, c) }));
+  return [...tasks, ...niches];
+}
+
+// FreeSerp matches whole words only ("suno" finds suno.com, "su" does not), so known sites from the
+// build-time index are matched by prefix locally and API results are appended after them.
+let siteIndex;
+const loadIndex = () => (siteIndex ??= fetch('/assets/sites-index.json').then((r) => r.json()).catch(() => []));
+
+async function siteMatches(q, preset, signal) {
+  const n = lower(q);
+  const cat = preset.ai_categories;
+  const local = (await loadIndex())
+    .filter(([domain, title, , cats]) => (!cat || cats.includes(cat)) && (domain.includes(n) || lower(title).includes(n)))
+    .map(([domain, title, dr]) => ({ domain, title, dr, rank: domain.startsWith(n) ? 0 : domain.includes(n) ? 1 : 2 }))
+    .sort((a, b) => a.rank - b.rank || (b.dr ?? -1) - (a.dr ?? -1))
+    .slice(0, 4);
+  let remote = [];
+  try {
+    remote = await suggest(q, preset, { signal });
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+  }
+  const seen = new Set(local.map((x) => x.domain));
+  return [...local, ...remote.filter((x) => !seen.has(x.domain))]
+    .slice(0, 7)
+    .map((x) => ({ type: 'site', label: x.domain, domain: x.domain, title: x.title, dr: x.dr, href: sitePath(lang, x.domain) }));
+}
+
+// Without a chosen niche, keep suggestions inside the AI part of the index.
+const nicheScope = (cat) => (cat ? { ai_categories: cat } : { category: 'ai' });
+
+const highlight = (text, q) => {
+  const i = lower(text).indexOf(lower(q));
+  return i < 0 ? esc(text) : `${esc(text.slice(0, i))}<mark>${esc(text.slice(i, i + q.length))}</mark>${esc(text.slice(i + q.length))}`;
+};
+
+let acCount = 0;
+// Accessible combobox: arrows move, Enter picks the highlighted row, Enter without a row submits the form.
+function autocomplete(input, { source, onPick = (it) => { location.href = it.href; } }) {
+  const list = document.createElement('ul');
+  list.className = 'ac';
+  list.id = `ac-${++acCount}`;
+  list.setAttribute('role', 'listbox');
+  list.hidden = true;
+  input.parentElement.append(list);
+  Object.entries({ role: 'combobox', 'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': list.id, autocomplete: 'off' })
+    .forEach(([k, v]) => input.setAttribute(k, v));
+
+  let items = [];
+  let active = -1;
+  let timer;
+  let ctrl;
+  const groupLabel = { task: L.suggest.tasks, niche: L.suggest.niches, site: L.suggest.sites };
+
+  const close = () => {
+    list.hidden = true;
+    active = -1;
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+  };
+  const setActive = (i) => {
+    active = i;
+    list.querySelectorAll('[role="option"]').forEach((el) => el.setAttribute('aria-selected', String(Number(el.dataset.i) === i)));
+    const el = document.getElementById(`${list.id}-${i}`);
+    if (el) { input.setAttribute('aria-activedescendant', el.id); el.scrollIntoView({ block: 'nearest' }); }
+  };
+  const pick = (it) => { close(); onPick(it); };
+
+  function render(q) {
+    let html = '';
+    let group = '';
+    items.forEach((it, i) => {
+      if (it.type !== group) { group = it.type; html += `<li class="ac-group" role="presentation">${groupLabel[group]}</li>`; }
+      const lead = it.type === 'site' ? favicon(it.domain, 24) : `<span class="ac-icon">${icon(it.icon, 'icon icon-sm')}</span>`;
+      html += `<li role="option" id="${list.id}-${i}" data-i="${i}" aria-selected="false">${lead}
+        <span class="ac-text"><span class="ac-label">${highlight(it.label, q)}</span>${it.type === 'site' ? `<span class="ac-sub">${esc(it.title)}</span>` : ''}</span>
+        ${it.type === 'site' && it.dr !== null ? `<span class="ac-dr">DR ${it.dr}</span>` : ''}</li>`;
+    });
+    list.innerHTML = html || `<li class="ac-empty" role="presentation">${L.suggest.empty}</li>`;
+    list.hidden = false;
+    active = -1;
+    input.setAttribute('aria-expanded', 'true');
+  }
+
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { ctrl?.abort(); close(); return; }
+    timer = setTimeout(async () => {
+      ctrl?.abort();
+      ctrl = new AbortController();
+      try { items = await source(q, ctrl.signal); } catch (e) { if (e.name === 'AbortError') return; items = []; }
+      if (document.activeElement === input && input.value.trim() === q) render(q);
+    }, 220);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (list.hidden || !items.length) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((active + 1) % items.length); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((active - 1 + items.length) % items.length); }
+    else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); pick(items[active]); }
+    else if (e.key === 'Escape') close();
+  });
+  input.addEventListener('blur', () => setTimeout(close, 150));
+  input.form?.addEventListener('submit', close);
+  list.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the input
+  list.addEventListener('click', (e) => {
+    const li = e.target.closest('[role="option"]');
+    if (li) pick(items[Number(li.dataset.i)]);
+  });
+}
+
+// Home hero: niche + query. A niche alone opens its SEO page; anything else goes to the catalog.
+const hero = document.querySelector('[data-hero-search]');
+if (hero) {
+  const catOf = () => hero.elements.cat.value;
+  autocomplete(hero.elements.q, {
+    source: async (q, signal) => [...localMatches(q), ...(await siteMatches(q, nicheScope(catOf()), signal))],
+  });
+  hero.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = hero.elements.q.value.trim();
+    const cat = catOf();
+    if (!q && NICHES.includes(cat)) { location.href = localePath(lang, `/niche/${slugify(cat)}/`); return; }
+    const qs = writeState({ cat: cat || undefined, q: q || undefined });
+    location.href = localePath(lang, '/sites/') + (qs ? `?${qs}` : '');
+  });
+}
+
 // ---------- list pages ----------
 function initList(root) {
   const cfg = JSON.parse(root.dataset.list);
   const form = root.querySelector('[data-filters]');
   const results = root.querySelector('[data-results]');
-  const moreKeys = ['cat', 'builder', 'tld', 'dr_min', 'dr_max', 'from', 'to', 'api', 'oss'];
+  const moreKeys = ['builder', 'tld', 'dr_min', 'dr_max', 'from', 'to', 'api', 'oss'];
+  const presetCat = cfg.preset.ai_categories || '';
   let state = readState(new URLSearchParams(location.search));
   let ctrl;
   let timer;
@@ -126,6 +269,7 @@ function initList(root) {
       if (!el.name) continue;
       if (el.type === 'checkbox') el.checked = Boolean(s[el.name]);
       else if (el.name === 'sort') el.value = effectiveSort(s);
+      else if (el.name === 'cat') el.value = s.cat === 'all' ? '' : s.cat ?? presetCat;
       else el.value = s[el.name] ?? '';
     }
     const n = moreKeys.filter((k) => s[k] !== undefined).length;
@@ -137,6 +281,12 @@ function initList(root) {
   function readForm() {
     const sp = new URLSearchParams();
     for (const [k, v] of new FormData(form)) if (v !== '') sp.set(k, v);
+    // The page's own niche is the default (not stored in the URL); clearing it means "all niches".
+    if (presetCat) {
+      const cat = form.elements.cat?.value ?? presetCat;
+      if (cat === presetCat) sp.delete('cat');
+      else if (cat === '') sp.set('cat', 'all');
+    }
     const s = readState(sp);
     if (s.sort && s.sort === (s.q ? 'relevance' : cfg.sort)) delete s.sort;
     return s;
@@ -196,6 +346,11 @@ function initList(root) {
   form.addEventListener('submit', (e) => { e.preventDefault(); clearTimeout(timer); load(readForm(), { push: true }); });
   form.addEventListener('change', (e) => {
     if (e.target.type === 'search') return; // handled by the debounced input listener / submit
+    if (cfg.nicheNav && e.target.name === 'cat') {
+      const v = e.target.value;
+      location.href = !v ? localePath(lang, '/sites/') : NICHES.includes(v) ? localePath(lang, `/niche/${slugify(v)}/`) : localePath(lang, `/sites/?cat=${encodeURIComponent(v)}`);
+      return;
+    }
     load(readForm(), { push: true });
     syncForm(state);
   });
@@ -222,6 +377,18 @@ function initList(root) {
     syncForm(s);
     load(s);
   });
+
+  // Suggestions follow the niche currently selected in this form.
+  const qInput = form.elements.q;
+  if (qInput) {
+    autocomplete(qInput, {
+      source: async (q, signal) => {
+        const cat = form.elements.cat?.value;
+        const scope = cat ? { ai_categories: cat } : cfg.preset.ai_startups ? { ai_startups: 1 } : {};
+        return [...localMatches(q), ...(await siteMatches(q, scope, signal))];
+      },
+    });
+  }
 
   syncForm(state);
   if (Object.keys(state).length || root.hasAttribute('data-empty')) load(state);
@@ -285,12 +452,11 @@ if (view) {
     view.innerHTML = sites.length ? compareTable(sites, lang) : message(L.compare.empty);
   };
 
-  addForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const input = addForm.elements.domain;
-    const d = input.value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+  const input = addForm.elements.domain;
+  async function addDomain(raw) {
+    const d = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
     note.textContent = '';
-    if (!DOMAIN.test(d)) { note.textContent = L.compare.notFound(input.value); return; }
+    if (!DOMAIN.test(d)) { note.textContent = L.compare.notFound(raw); return; }
     const list = compare.get();
     if (list.includes(d)) { input.value = ''; return; }
     if (list.length >= 3) { note.textContent = L.compare.full; return; }
@@ -298,6 +464,11 @@ if (view) {
     if (!s) { note.textContent = L.compare.notFound(d); return; }
     input.value = '';
     compare.set([...list, d]);
+  }
+  addForm.addEventListener('submit', (e) => { e.preventDefault(); addDomain(input.value); });
+  autocomplete(input, {
+    source: (q, signal) => siteMatches(q, nicheScope(addForm.elements.cat.value), signal),
+    onPick: (it) => addDomain(it.domain),
   });
   view.addEventListener('click', (e) => {
     const b = e.target.closest('[data-remove]');

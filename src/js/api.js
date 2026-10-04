@@ -75,4 +75,11 @@ export async function lookup(domain, opts) {
   return normalize(r);
 }
 
+// Autocomplete: no page text, just enough to render a suggestion row.
+export async function suggest(q, preset = {}, opts) {
+  const data = await getJson({ ...preset, q, size: 8 }, { ...opts, retries: 0 });
+  return (data.results || []).filter((r) => !isBlocked(r)).slice(0, 6)
+    .map((r) => ({ domain: r.domain, title: r.title || r.domain, dr: typeof r.dr === 'number' ? r.dr : null }));
+}
+
 export const stats = (opts) => getJson({ stats: 1 }, opts);

@@ -80,7 +80,8 @@ export const AI_BUILDERS = ['lovable', 'v0', 'bolt', 'base44', 'ai_likely'];
 export const TLDS = ['ai', 'io', 'com', 'app', 'dev', 'co', 'so', 'tech', 'net', 'org'];
 
 // Hidden from every list: adult content, gambling and dead/parked pages that slip past real_site=1.
-export const BLOCKLIST = /\b(nsfw|porn\w*|xxx|nude|nudes|nudify\w*|nudifier|undress\w*|deepnude|deep-nude|hentai|sex|sexy|erotic\w*|onlyfans|casino\w*|betting|gambl\w*|gamstop)\b|nudif|undress|faceswapporn|domain is expired|domain (is )?for sale|buy this domain/i;
+// `sex\w*` needs a word start, so domains like sexhd88.live match but essex.ac.uk does not.
+export const BLOCKLIST = /\b(nsfw|porn\w*|xxx\w*|nude|nudes|nudify\w*|nudifier|undress\w*|deepnude|deep-nude|hentai|sex\w*|erotic\w*|onlyfans|casino\w*|betting|gambl\w*|gamstop)\b|nudif|undress|faceswapporn|domain is expired|domain (is )?for sale|buy this domain/i;
 
 export const slugify = (s) => s.toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 export const nicheBySlug = (slug) => NICHES.find((n) => slugify(n) === slug);

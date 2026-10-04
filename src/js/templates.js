@@ -1,5 +1,5 @@
 // Isomorphic HTML templates: the build script prerenders with them, the browser re-renders with them.
-import { NICHES, AI_BUILDERS, slugify } from './config.js';
+import { NICHES, ALL_CATEGORIES, AI_BUILDERS, slugify } from './config.js';
 import { t, categoryName, fmtDate, fmtNum, localePath } from './i18n.js';
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -183,6 +183,15 @@ export function compareTable(sites, lang) {
     <button type="button" class="icon-btn" data-remove="${esc(s.domain)}" aria-label="${L.compare.remove} ${esc(s.domain)}">${icon('x', 'icon icon-sm')}</button></div></th>`).join('')}</tr></thead>
   <tbody>${rows.map(([label, fn]) => `<tr><th scope="row">${esc(label)}</th>${cell(fn)}</tr>`).join('')}</tbody>
 </table></div>`;
+}
+
+// Niche <select> options: startup niches first, then the rest of the taxonomy, sorted per language.
+export function nicheOptions(lang, selected = '', anyLabel = t(lang).filters.allNiches) {
+  const byName = (a, b) => categoryName(a, lang).localeCompare(categoryName(b, lang), lang);
+  const opt = (c) => `<option value="${esc(c)}"${c === selected ? ' selected' : ''}>${esc(categoryName(c, lang))}</option>`;
+  const [g1, g2] = t(lang).filters.nicheGroups;
+  const others = ALL_CATEGORIES.filter((c) => !NICHES.includes(c)).sort(byName);
+  return `<option value="">${esc(anyLabel)}</option><optgroup label="${esc(g1)}">${[...NICHES].sort(byName).map(opt).join('')}</optgroup><optgroup label="${esc(g2)}">${others.map(opt).join('')}</optgroup>`;
 }
 
 export const resultsMeta = (text) => `<p class="results-meta" aria-live="polite">${esc(text)}</p>`;

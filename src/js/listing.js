@@ -22,7 +22,8 @@ export function readState(sp) {
   const g = (k) => (sp.get(k) || '').trim();
   const s = {};
   if (g('q')) s.q = g('q').slice(0, 100);
-  if (ALL_CATEGORIES.includes(g('cat'))) s.cat = g('cat');
+  // 'all' clears a page's preset niche (e.g. a task page widened to every niche).
+  if (g('cat') === 'all' || ALL_CATEGORIES.includes(g('cat'))) s.cat = g('cat');
   if (BUILDERS.includes(g('builder'))) s.builder = g('builder');
   if (TLDS.includes(g('tld'))) s.tld = g('tld');
   const drMin = int(g('dr_min'), 0, 100); if (drMin) s.dr_min = drMin;
@@ -59,7 +60,8 @@ export function toApiParams(cfg, s) {
   const q = words.filter(Boolean).join(' ').trim();
   if (q) p.q = q; else delete p.q;
 
-  if (s.cat && !cfg.preset.ai_categories) {
+  if (s.cat === 'all') delete p.ai_categories;
+  else if (s.cat) {
     p.ai_categories = s.cat;
     // A specific niche is a stronger filter than ai_startups, which drops media niches.
     delete p.ai_startups;
