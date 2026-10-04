@@ -44,7 +44,7 @@
 `ai_startups`, `ai_categories`, `ai` / `ai_source`, `tld`, `dr_min` / `dr_max`, `from_date` / `to_date`, `sort` / `order`, `from` / `size`, `content` + `content_max` (для евристики ціни), `stats=1`, пошук домену через `q=домен&all=1`, ідентифікація `agent` / `project`. Обмеження, знайдені під час перевірки (CORS, одна ніша на запит, таксономія, відставання даних тощо): [`docs/API_NOTES.md`](docs/API_NOTES.md).
 
 ### Робота з AI
-Робота велася в Claude Desktop (Code). Правила для AI — у [`CLAUDE.md`](CLAUDE.md). Процес, рішення та помилки AI, які вдалося виловити (наприклад, дубльований CORS-заголовок API): [`docs/AI_LOG.md`](docs/AI_LOG.md).
+Робота велася в Claude Desktop (Code): AI пише код і проводить перевірки, постановка задач, рішення та приймання — за людиною. Правила для AI — у [`CLAUDE.md`](CLAUDE.md). Процес, три аудити та помилки, які вдалося виловити (дубльований CORS-заголовок API, відкритий ретранслятор на проксі, кириличні запити, яких API не знаходить): [`docs/AI_LOG.md`](docs/AI_LOG.md).
 
 ## Як запустити
 
