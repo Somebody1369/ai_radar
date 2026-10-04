@@ -592,7 +592,7 @@ if (view) {
     const list = compare.get();
     history.replaceState(null, '', compareHref(list));
     if (!list.length) { view.innerHTML = message(L.compare.empty); return; }
-    view.innerHTML = '<div class="card card-skel card-skel-wide"></div>';
+    view.innerHTML = compareTable(list.map((domain) => ({ domain })), lang);
     const found = await Promise.all(list.map((d) => lookup(d).catch(() => null)));
     const missing = list.filter((d, i) => !found[i]);
     if (missing.length) note.textContent = missing.map(L.compare.notFound).join(' · ');

@@ -5,7 +5,8 @@ import { t, categoryName, fmtDate, fmtNum, localePath } from './i18n.js';
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '#');
 // ai_source mixes builder ids (lovable) with raw generator tags ("gen:gridsome v0.7.23").
-const builderName = (src, lang) => (src ? t(lang).builders[src] || src.replace(/^gen:/, '') : '—');
+// `not_ai` is the API's "no builder detected" marker, not something to show.
+const builderName = (src, lang) => (src && src !== 'not_ai' ? t(lang).builders[src] || src.replace(/^gen:/, '') : '—');
 
 const ICON_PATHS = {
   music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
@@ -161,10 +162,13 @@ export function siteDetail(s, lang) {
 </article>`;
 }
 
+// Items without `meta` (just { domain }) render as a same-shaped skeleton, so swapping in the
+// loaded data does not move the layout.
 export function compareTable(sites, lang) {
   const L = t(lang);
   const S = L.site;
-  const cell = (fn) => sites.map((s) => `<td>${fn(s)}</td>`).join('');
+  const skel = (lines) => `<span class="skel-line"></span>`.repeat(lines);
+  const cell = (fn, last) => sites.map((s) => `<td>${s.meta ? fn(s) : skel(last ? 6 : 1)}</td>`).join('');
   const rows = [
     ['Domain Rating', (s) => `<strong>${s.dr ?? '—'}</strong>`],
     [S.pricing, (s) => pricingBadge(s.meta, lang)],
@@ -181,7 +185,7 @@ export function compareTable(sites, lang) {
   <thead><tr><th scope="col"></th>${sites.map((s) => `<th scope="col">
     <div class="cmp-head">${favicon(s.domain, 28)}<a href="${sitePath(lang, s.domain)}">${esc(s.domain)}</a>
     <button type="button" class="icon-btn" data-remove="${esc(s.domain)}" aria-label="${L.compare.remove} ${esc(s.domain)}">${icon('x', 'icon icon-sm')}</button></div></th>`).join('')}</tr></thead>
-  <tbody>${rows.map(([label, fn]) => `<tr><th scope="row">${esc(label)}</th>${cell(fn)}</tr>`).join('')}</tbody>
+  <tbody>${rows.map(([label, fn], i) => `<tr><th scope="row">${esc(label)}</th>${cell(fn, i === rows.length - 1)}</tr>`).join('')}</tbody>
 </table></div>`;
 }
 

@@ -27,7 +27,8 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; scroll-padding-top: 88px; }
+/* Reserve the scrollbar's width so short pages (e.g. compare while loading) don't jump sideways. */
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 88px; scrollbar-gutter: stable; }
 body {
   margin: 0;
   background: var(--bg);
@@ -275,9 +276,8 @@ a.chip:hover { background: var(--fill-hover); color: var(--text); }
 .fav-fallback::before { display: grid; }
 
 .card-skel { min-height: 240px; background: linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
-.card-skel-wide { min-height: 320px; }
 @keyframes shimmer { to { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { .card-skel { animation: none; } * { transition: none !important; scroll-behavior: auto !important; } }
+@media (prefers-reduced-motion: reduce) { .card-skel, .skel-line { animation: none; } * { transition: none !important; scroll-behavior: auto !important; } }
 
 /* list & filters */
 .filters { position: sticky; top: 72px; z-index: 10; display: flex; flex-direction: column; gap: 10px; padding: 12px; margin-bottom: 20px; border-radius: 28px; background: rgba(28, 28, 28, 0.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); }
@@ -338,6 +338,10 @@ tbody th { color: var(--text-3); font-weight: 500; width: 180px; white-space: no
 .cmp-head { display: flex; align-items: center; gap: 10px; }
 .cmp-head a { flex: 1; overflow-wrap: anywhere; }
 .cmp-head a:hover { color: var(--accent); }
+.skel-line { display: block; height: 12px; margin: 5px 0; border-radius: var(--pill); background: linear-gradient(100deg, var(--fill) 30%, var(--fill-hover) 50%, var(--fill) 70%) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
+.skel-line:only-child { width: 60%; }
+/* Before the script fills it, keep roughly the table's height so the footer doesn't jump. */
+[data-compare-view]:empty { min-height: 560px; }
 
 /* compare bar (floating dock, like the reference's bottom bar) */
 .cmpbar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 60; width: max-content; max-width: calc(100% - 32px); }
