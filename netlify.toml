@@ -1,0 +1,40 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Same-origin proxy: FreeSerp duplicates its CORS header, so browsers cannot call it directly.
+[[redirects]]
+  from = "/api/fs"
+  to = "https://freeserp.ai/api.php"
+  status = 200
+  force = true
+
+# Site pages that were not prerendered are rendered in the browser from a shell page.
+[[redirects]]
+  from = "/site/*"
+  to = "/site/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/en/site/*"
+  to = "/en/site/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/en/*"
+  to = "/en/404.html"
+  status = 404
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, must-revalidate"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
