@@ -1,5 +1,5 @@
 // List state <-> URL <-> FreeSerp params. Shared so the prerendered first page matches the client.
-import { PAGE_SIZE, DEEP_SCAN_SIZE, MAX_WINDOW, TLDS, BUILDERS, ALL_CATEGORIES } from './config.js';
+import { PAGE_SIZE, DEEP_SCAN_SIZE, MAX_WINDOW, TLDS, BUILDERS, CATEGORY_RX, isDate } from './config.js';
 
 export const SORTS = {
   relevance: { sort: 'relevance' },
@@ -9,7 +9,6 @@ export const SORTS = {
 
 const PRICING = ['hasfree', 'free', 'freemium', 'trial', 'paid'];
 const ACCESS = ['noauth', 'account', 'waitlist'];
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
 export const MAX_PAGE = Math.floor((MAX_WINDOW - PAGE_SIZE) / PAGE_SIZE) + 1;
 
 const int = (v, min, max) => {
@@ -22,14 +21,15 @@ export function readState(sp) {
   const g = (k) => (sp.get(k) || '').trim();
   const s = {};
   if (g('q')) s.q = g('q').slice(0, 100);
-  // 'all' clears a page's preset niche (e.g. a task page widened to every niche).
-  if (g('cat') === 'all' || ALL_CATEGORIES.includes(g('cat'))) s.cat = g('cat');
+  // 'all' clears a page's preset niche (e.g. a task page widened to every niche). Any well-formed
+  // category is accepted: chips link to whatever the API returns, not only to the select's list.
+  if (g('cat') === 'all' || CATEGORY_RX.test(g('cat'))) s.cat = g('cat');
   if (BUILDERS.includes(g('builder'))) s.builder = g('builder');
   if (TLDS.includes(g('tld'))) s.tld = g('tld');
   const drMin = int(g('dr_min'), 0, 100); if (drMin) s.dr_min = drMin;
   const drMax = int(g('dr_max'), 0, 100); if (drMax !== undefined && g('dr_max') !== '' && drMax < 100) s.dr_max = drMax;
-  if (DATE.test(g('from'))) s.from = g('from');
-  if (DATE.test(g('to'))) s.to = g('to');
+  if (isDate(g('from'))) s.from = g('from');
+  if (isDate(g('to'))) s.to = g('to');
   // Reversed ranges would always return nothing: swap them instead.
   if (s.dr_min !== undefined && s.dr_max !== undefined && s.dr_min > s.dr_max) [s.dr_min, s.dr_max] = [s.dr_max, s.dr_min];
   if (s.from && s.to && s.from > s.to) [s.from, s.to] = [s.to, s.from];
@@ -99,3 +99,11 @@ export function toApiParams(cfg, s, { nudge = true } = {}) {
 }
 
 export const pageCount = (total) => Math.min(Math.ceil(total / PAGE_SIZE), MAX_PAGE);
+
+// The deep scan merges two separately sorted API answers: restore the chosen order across them
+// (relevance keeps the merge order, hinted results first).
+const ORDER = { dr: (x) => x.dr ?? -1, new: (x) => x.wentLive || '' };
+export function sortMerged(cfg, s, results) {
+  const key = ORDER[effectiveSort(cfg, s)];
+  return key ? [...results].sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : 0)) : results;
+}

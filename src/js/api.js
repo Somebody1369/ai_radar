@@ -1,12 +1,21 @@
 // Thin FreeSerp client shared by the browser and the build script.
-import { API_BASE, API_PROXY, API_IDENTITY, BLOCKLIST, CONTENT_MAX } from './config.js';
-import { classify } from './classify.js';
+import { API_BASE, API_PROXY, API_IDENTITY, BLOCKLIST, NOT_A_PRODUCT, CONTENT_MAX } from './config.js';
+import { classify, lookalike } from './classify.js';
 
-// Optional cache injected by the environment: { get(url), set(url, data) }.
+// Optional cache injected by the environment: { get(key), set(key, value) }. It keeps what the
+// functions below return (page text already classified and dropped), not raw API responses, so a
+// 100-result deep scan is ~100 KB instead of ~450 KB.
 let cache = null;
 export const setCache = (c) => { cache = c; };
+// Part of every key: bump it when the cached shape changes, so old entries are never read back.
+const CACHE_VERSION = 'v2';
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(message, status = 0) {
+    super(message);
+    this.status = status;
+  }
+}
 
 export function buildUrl(params) {
   const sp = new URLSearchParams();
@@ -18,28 +27,43 @@ export function buildUrl(params) {
 
 async function getJson(params, { signal, retries = 1 } = {}) {
   const url = buildUrl(params);
-  const hit = cache && (await cache.get(url));
-  if (hit) return hit;
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(url, { signal });
       // Bad params never error per the docs, but malformed ones (e.g. arrays) return non-JSON.
       const data = await res.json().catch(() => null);
-      if (!res.ok || !data || data.ok === false) throw new ApiError(data?.error || `HTTP ${res.status}`);
-      if (cache) await cache.set(url, data);
+      if (!res.ok || !data || data.ok === false) throw new ApiError(data?.error || `HTTP ${res.status}`, res.status);
       return data;
     } catch (e) {
       if (e.name === 'AbortError') throw e;
       lastErr = e;
+      if (e.status === 429) break; // rate limited: an instant retry only makes it worse
       if (attempt < retries) await new Promise((r) => setTimeout(r, 600));
     }
   }
   throw lastErr instanceof ApiError ? lastErr : new ApiError(lastErr?.message || 'network');
 }
 
+// Cached by request URL. Values are wrapped, so a cached "not found" (null) is still a hit.
+async function cached(params, opts, build) {
+  const key = `${CACHE_VERSION} ${buildUrl(params)}`;
+  const hit = cache && (await cache.get(key));
+  if (hit && 'value' in hit) return hit.value;
+  const value = build(await getJson(params, opts));
+  if (cache) await cache.set(key, { value });
+  return value;
+}
+
 // Text-only on purpose: the API's category=betting/casino has false positives (e.g. favicon.io).
 export const isBlocked = (s) => BLOCKLIST.test(`${s.domain} ${s.title || ''} ${s.ai_summary || ''}`);
+// Not a tool (agency, portfolio, empty or template page): left out of lists, still found by lookup().
+export function isNoise(s) {
+  const summary = s.ai_summary || '';
+  if (!s.title && !summary) return true;
+  if (NOT_A_PRODUCT.title.test((s.title || '').trim())) return true;
+  return NOT_A_PRODUCT.agency.test(summary) || (NOT_A_PRODUCT.personal.test(summary) && !NOT_A_PRODUCT.builder.test(summary));
+}
 
 // Keep only what the UI needs; the page text is used for classification and then dropped.
 export function normalize(r) {
@@ -58,31 +82,33 @@ export function normalize(r) {
     firstSeen: r.first_seen || null,
     tld: r.tld || null,
     server: r.webserver || null,
+    lookalike: lookalike(r.domain),
     meta: classify(r),
   };
 }
 
-export async function search(params, opts) {
-  const data = await getJson({ content: 1, content_max: CONTENT_MAX, ...params }, opts);
-  const raw = data.results || [];
-  const results = raw.filter((r) => !isBlocked(r)).map(normalize);
-  return { total: data.total || 0, results, hidden: raw.length - results.length };
+export function search(params, opts) {
+  return cached({ content: 1, content_max: CONTENT_MAX, ...params }, opts, (data) => {
+    const raw = data.results || [];
+    const results = raw.filter((r) => !isBlocked(r) && !isNoise(r)).map(normalize);
+    return { total: data.total || 0, results, hidden: raw.length - results.length };
+  });
 }
 
 // There is no "get by domain" endpoint: search the domain itself and confirm the first hit.
-export async function lookup(domain, opts) {
+export function lookup(domain, opts) {
   const d = domain.toLowerCase().trim();
-  const data = await getJson({ q: d, all: 1, size: 1, content: 1, content_max: CONTENT_MAX }, opts);
-  const r = data.results?.[0];
-  if (!r || r.domain !== d || isBlocked(r)) return null;
-  return normalize(r);
+  return cached({ q: d, all: 1, size: 1, content: 1, content_max: CONTENT_MAX }, opts, (data) => {
+    const r = data.results?.[0];
+    return !r || r.domain !== d || isBlocked(r) ? null : normalize(r);
+  });
 }
 
 // Autocomplete: no page text, just enough to render a suggestion row.
-export async function suggest(q, preset = {}, opts) {
-  const data = await getJson({ ...preset, q, size: 8 }, { ...opts, retries: 0 });
-  return (data.results || []).filter((r) => !isBlocked(r)).slice(0, 6)
-    .map((r) => ({ domain: r.domain, title: r.title || r.domain, dr: typeof r.dr === 'number' ? r.dr : null }));
+export function suggest(q, preset = {}, opts) {
+  return cached({ ...preset, q, size: 8 }, { ...opts, retries: 0 }, (data) => (data.results || [])
+    .filter((r) => !isBlocked(r)).slice(0, 6)
+    .map((r) => ({ domain: r.domain, title: r.title || r.domain, dr: typeof r.dr === 'number' ? r.dr : null })));
 }
 
-export const stats = (opts) => getJson({ stats: 1 }, opts);
+export const stats = (opts) => cached({ stats: 1 }, opts, (data) => data);

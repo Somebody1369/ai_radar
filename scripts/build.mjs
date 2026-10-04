@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { TASKS, NICHES, BUILDERS, TLDS, PAGE_SIZE, slugify } from '../src/js/config.js';
+import { TASKS, NICHES, BUILDERS, TLDS, PAGE_SIZE, slugify, isDate } from '../src/js/config.js';
 import { search, stats, setCache } from '../src/js/api.js';
 import { LANGS, t, taskName, taskDesc, categoryName, fmtDate, fmtNum, localePath } from '../src/js/i18n.js';
 import { esc, icon, grid, pagination, resultsMeta, siteDetail, sitePath, message, nicheOptions, cardMini, setLatest } from '../src/js/templates.js';
@@ -75,15 +75,18 @@ const statsData = await safe('stats', () => stats());
 const catalog = await fetchList(LIST.catalog, 'catalog');
 
 // "New" is measured from the latest date in the data, not from today: the index lags real time.
-const newest = await safe('latest', () => search({ ai_startups: 1, sort: 'went_live', order: 'desc', size: 1 }));
+// Several rows, because the very newest sites may be hidden (blocklist, agencies).
+const newest = await safe('latest', () => search({ ai_startups: 1, sort: 'went_live', order: 'desc', size: 10 }));
 // A broken API must not replace a good deploy with empty pages: fail the build and Netlify keeps
-// serving the previous one.
-const abort = () => {
-  console.error('✗ FreeSerp API is unavailable or failing — build aborted, the current deploy stays live.');
+// serving the previous one. "Broken" includes a valid answer with no data in it.
+const abort = (why = 'is unavailable or failing') => {
+  console.error(`✗ FreeSerp API ${why} — build aborted, the current deploy stays live.`);
   process.exit(1);
 };
 if (!catalog || !newest) abort();
-const latest = newest.results[0]?.wentLive || BUILD_DATE;
+if (!catalog.results.length) abort('returned an empty catalog');
+const latest = newest.results.map((s) => s.wentLive).find(isDate);
+if (!latest) abort('returned no went_live dates');
 setLatest(latest);
 const daysBefore = (n) => new Date(Date.parse(`${latest}T00:00:00Z`) - n * 864e5).toISOString().slice(0, 10);
 const weekAgo = daysBefore(6);
@@ -150,11 +153,17 @@ function breadcrumbs(lang, items) {
   return { html, ld };
 }
 
+// `indexable: false` pages (404, the client-rendered site shell) get no canonical, hreflang or og:url:
+// they would all point at the shell's own path (/site/, /404.html), not at the URL being viewed.
 function layout({ lang, pathname, title, description, body, active = '', robots = 'index,follow', ld = [], indexable = true }) {
   const L = t(lang);
   const other = lang === 'uk' ? 'en' : 'uk';
   const canonical = SITE + localePath(lang, pathname);
   if (indexable && lang === 'uk') sitemap.push(pathname);
+  const urls = indexable ? `<link rel="canonical" href="${canonical}">
+${LANGS.map((l) => `<link rel="alternate" hreflang="${l}" href="${SITE + localePath(l, pathname)}">`).join('\n')}
+<link rel="alternate" hreflang="x-default" href="${SITE + pathname}">
+<meta property="og:url" content="${canonical}">` : '';
   const nav = [['tools', '/tools/'], ['catalog', '/sites/'], ['new', '/new/'], ['compare', '/compare/']];
   return `<!doctype html>
 <html lang="${lang}">
@@ -165,25 +174,22 @@ function layout({ lang, pathname, title, description, body, active = '', robots 
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
 <meta name="robots" content="${robots}">
-<link rel="canonical" href="${canonical}">
-${LANGS.map((l) => `<link rel="alternate" hreflang="${l}" href="${SITE + localePath(l, pathname)}">`).join('\n')}
-<link rel="alternate" hreflang="x-default" href="${SITE + pathname}">
+${urls}
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="${L.siteName}">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(description)}">
-<meta property="og:url" content="${canonical}">
 <meta property="og:locale" content="${lang === 'uk' ? 'uk_UA' : 'en_US'}">
 <meta name="theme-color" content="#161616">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400..700;1,14..32,400..600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400..700;1,14..32,400..600&display=swap" referrerpolicy="no-referrer">
 <link rel="preconnect" href="https://www.google.com">
 <link rel="stylesheet" href="${ASSETS}/css/style.css">
 ${ld.map(jsonld).join('\n')}
 </head>
-<body data-lang="${lang}" data-latest="${latest}">
+<body data-lang="${lang}" data-latest="${esc(latest)}">
 <a class="skip" href="#main">${L.skip}</a>
 <header class="header">
   <div class="wrap header-in">
@@ -254,7 +260,7 @@ function filtersForm(cfg, lang) {
     <summary class="btn btn-ghost btn-sm">${F.title}<span class="filters-count" data-filters-count></span></summary>
     <div class="filters-row">${more.join('')}<button type="reset" class="btn btn-ghost btn-sm" data-reset>${F.reset}</button></div>
   </details>
-  <noscript><button class="btn btn-primary btn-sm">${F.apply}</button></noscript>
+  <noscript><p class="small muted">${F.noscript}</p></noscript>
 </form>`;
 }
 
@@ -308,7 +314,10 @@ for (const lang of LANGS) {
   const L = t(lang);
   const H = L.home;
   const total = statsData?.ai_startups?.total;
-  const taskTotals = Object.fromEntries(tasks.map((x) => [x.task.slug, x.data?.total]));
+  // A text-only task (favicons) searches the whole index: its total counts pages that mention the
+  // words, not tools, so the tile shows no number.
+  const scoped = ({ params }) => Boolean(params.ai_categories || params.category || params.ai_startups);
+  const taskTotals = Object.fromEntries(tasks.map((x) => [x.task.slug, scoped(x.task) ? x.data?.total : undefined]));
 
   // Home
   const taskTile = (task, n) => `<a class="tile" href="${localePath(lang, `/tools/${task.slug}/`)}">
@@ -357,7 +366,8 @@ ${section(H.nichesTitle, '', '', `<div class="niche-grid">${niches.map(({ name, 
 </section>`;
   await writePage(lang, '/', layout({
     lang, pathname: '/', title: H.title, description: H.description, body: homeBody,
-    ld: [{ '@context': 'https://schema.org', '@type': 'WebSite', name: 'AI Radar', url: SITE + localePath(lang, '/'), inLanguage: lang, potentialAction: { '@type': 'SearchAction', target: `${SITE}${localePath(lang, '/sites/')}?q={search_term_string}`, 'query-input': 'required name=search_term_string' } }],
+    // WebSite gives Google the site name. No SearchAction: Google retired the sitelinks search box in 2024.
+    ld: [{ '@context': 'https://schema.org', '@type': 'WebSite', name: 'AI Radar', url: SITE + localePath(lang, '/'), inLanguage: lang }],
   }));
 
   // Tools index
@@ -419,7 +429,7 @@ ${listSection(cfg, data, lang)}
     }));
   }
   await writePage(lang, '/site/', layout({
-    lang, pathname: '/site/', title: L.site.loading, description: L.catalog.description, active: 'catalog', robots: 'noindex,follow', indexable: false,
+    lang, pathname: '/site/', title: L.site.shellTitle, description: L.catalog.description, active: 'catalog', robots: 'noindex,follow', indexable: false,
     body: `<div data-site><p class="msg">${L.site.loading}</p></div><section class="section" data-similar></section>`,
   }));
 
@@ -430,6 +440,7 @@ ${listSection(cfg, data, lang)}
     body: `${cmpCrumbs.html}${pageHead(L.compare.h1, L.compare.lead)}
 <form class="cmp-add" data-cmp-add><label class="cmp-niche"><span class="sr-only">${L.filters.niche}</span><select class="input" name="cat">${nicheOptions(lang)}</select></label><span class="input-icon">${icon('plus', 'icon icon-sm')}<input class="input" name="domain" placeholder="${esc(L.compare.addPh)}" aria-label="${esc(L.compare.addPh)}" autocomplete="off" required></span><button class="btn btn-primary">${L.compare.add}</button></form>
 <p class="small muted" data-cmp-note aria-live="polite"></p>
+<p class="small muted" data-cmp-restore hidden></p>
 <div data-compare-view></div>`,
   }));
 

@@ -2,17 +2,20 @@
 // FreeSerp has no pricing or auth fields, so we read the homepage text (content=1) plus the
 // LLM summary and look for explicit phrases. Every verdict keeps the phrases that produced it,
 // so the UI can show "why" instead of pretending to know.
+import { BRANDS } from './config.js';
 
 // Idioms where "free" says nothing about the price ("feel free", "hands-free", "risk-free"…).
 const NOT_PRICE = '(?<!(?:feel|hands|royalty|risk|hassle|toll|sugar|gluten|carbon|duty|tax|stress|worry|cruelty|error|bug|spam|ad|distraction|cookie)[- ])';
+// "free" that only sets a trial length ("free 7-day trial", "try free for 14 days") is not a free tier.
+const NOT_TRIAL = '(?!\\s+(?:trial|shipping|delivery|consultation|quote|demo|estimate|returns)\\b|\\s+(?:for\\s+)?\\d+[- ]?(?:days?|weeks?|months?)\\b)';
 // Zero prices ("$0", "€0.00") mean a free tier; amounts followed by M/B/k are funding, not prices.
 const ZERO = '[$€£]\\s?0(?:[.,]0+)?(?![\\d.,])';
 const PRICE = '[$€£]\\s?(?!0(?:[.,]0+)?(?![\\d.,]))\\d+(?:[.,]\\d+)*(?![\\d.,]|\\s?(?:[mbk]\\b|mn\\b|bn\\b|million|billion))';
 
 const RX = {
   // Explicit "free" phrasing. A bare "free" only counts when it is not part of trial/shipping/etc.
-  free: new RegExp(`\\b(100% free|free forever|completely free|totally free|absolutely free|free to use|free plan|free tier|free version|free account|free online|for free|it'?s free|start (for )?free|try (it )?(for )?free|get started (for )?free|free credits?|free download|no cost)\\b|${ZERO}|${NOT_PRICE}\\bfree\\b(?! (trial|shipping|delivery|consultation|quote|demo|estimate|returns))`, 'gi'),
-  trial: /\b(free trial|\d+[- ]day (free )?trial|trial period|try free for \d+)\b/gi,
+  free: new RegExp(`\\b(?:100% free|free forever|completely free|totally free|absolutely free|free to use|free plan|free tier|free version|free account|free online|it'?s free|free credits?|free download|no cost)\\b|\\b(?:for free|start (?:for )?free|try (?:it )?(?:for )?free|get started (?:for )?free)\\b${NOT_TRIAL}|${ZERO}|${NOT_PRICE}\\bfree\\b${NOT_TRIAL}`, 'gi'),
+  trial: /\b((?:free )?\d+[- ]day (?:free )?trial|free trial|trial period|(?:try (?:it )?)?free for \d+ (?:days?|weeks?|months?)|free \d+[- ]?(?:days?|weeks?|months?))\b/gi,
   // Strong paid signals: a non-zero price or explicit billing words.
   paid: new RegExp(`(${PRICE}|\\b\\d+(?:[.,]\\d+)?\\s?(?:usd|eur|uah)\\b|\\bper (?:user|seat)\\b|\\b(?:subscription|paid plans?|pro plan|upgrade to pro|buy now|billed (?:monthly|annually|yearly)|one-time payment|lifetime deal)\\b)`, 'gi'),
   // Weak signals: a "Pricing" menu link, "premium", "subscribe" (not to a newsletter), "/month"…
@@ -22,7 +25,8 @@ const RX = {
   noauth: /\b(no (sign[- ]?up|signup|login|log[- ]in|registration|account)( required| needed)?|without (sign[- ]?up|signing up|registration|registering|login|logging in|an account)|no account (needed|required)|no registration)\b/gi,
   waitlist: /\b(join (the |our )?wait ?list|wait ?list|early access|coming soon|request access|request a demo)\b/gi,
   account: /\b(sign[- ]?up|log[- ]?in|sign[- ]?in|create (an |your )?account|register)\b/gi,
-  api: /\b(api|sdk|developer docs)\b/gi,
+  // "API keys" is usually a client asking for yours (bring your own key), not an API on offer.
+  api: /\b(api(?!\s*keys?\b)|sdk|developer docs)\b/gi,
   opensource: /\b(open[- ]source|self[- ]host(ed|able)?|github\.com\/[\w-]+)\b/gi,
 };
 
@@ -66,6 +70,18 @@ export function classify(site) {
     opensource: ev.opensource.length > 0,
     evidence: { pricing: pricingEvidence, access: accessEvidence, api: ev.api, opensource: ev.opensource },
   };
+}
+
+// A domain named after a famous brand that is not one of its official domains (config.BRANDS):
+// { brand, token, official } for the "unofficial site" label, or null.
+const OFFICIAL = BRANDS.flatMap((b) => b.official);
+const BRAND_RX = BRANDS.map((b) => ({ ...b, rx: b.match || new RegExp(b.token) }));
+export function lookalike(domain) {
+  const d = String(domain || '').toLowerCase();
+  if (OFFICIAL.some((o) => d === o || d.endsWith(`.${o}`))) return null;
+  const name = d.split('.').slice(0, -1).join('.').replace(/-/g, '');
+  const b = BRAND_RX.find((x) => x.rx.test(name));
+  return b ? { brand: b.name, token: b.token, official: b.official[0] } : null;
 }
 
 // Filter predicates used by the deep-scan mode of list pages.

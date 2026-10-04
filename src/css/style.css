@@ -18,6 +18,8 @@
   --amber-soft: rgba(245, 183, 74, 0.12);
   --violet: #c98bff;
   --violet-soft: rgba(173, 31, 255, 0.16);
+  --red: #ff8a80;
+  --red-soft: rgba(255, 138, 128, 0.12);
   --pill: 100px;
   --radius: 20px;
   --radius-sm: 12px;
@@ -192,6 +194,8 @@ a.chip:hover { background: var(--fill-hover); color: var(--text); }
 .b-freemium { background: var(--accent-soft); color: #6cc4ff; border-color: rgba(0, 153, 255, 0.3); }
 .b-trial, .a-waitlist, .b-ai { background: var(--violet-soft); color: var(--violet); border-color: rgba(201, 139, 255, 0.28); }
 .b-paid { background: var(--amber-soft); color: var(--amber); border-color: rgba(245, 183, 74, 0.25); }
+.b-warn { background: var(--red-soft); color: var(--red); border-color: rgba(255, 138, 128, 0.3); }
+.warn-text { color: var(--red); font-weight: 500; }
 .b-unknown, .a-unknown { color: var(--text-3); }
 .badge[data-why] { cursor: help; }
 .badge[data-why]::after {
@@ -367,6 +371,7 @@ tbody th { color: var(--text-3); font-weight: 500; width: 180px; white-space: no
 .cmp-head a:hover { color: var(--accent); }
 .skel-line { display: block; height: 12px; margin: 5px 0; border-radius: var(--pill); background: linear-gradient(100deg, var(--fill) 30%, var(--fill-hover) 50%, var(--fill) 70%) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
 .skel-line:only-child { width: 60%; }
+.cmp-retry { margin-top: 8px; }
 /* Before the script fills it, keep roughly the table's height so the footer doesn't jump. */
 [data-compare-view]:empty { min-height: 560px; }
 
@@ -377,17 +382,6 @@ tbody th { color: var(--text-3); font-weight: 500; width: 180px; white-space: no
 .cmpbar-items { display: flex; gap: 6px; flex-wrap: wrap; }
 .cmpbar-item { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px 0 6px; border-radius: var(--pill); background: var(--fill); font-size: 13px; color: var(--text-2); }
 .cmpbar-note { font-size: 13px; color: var(--amber); }
-
-/* prose (plan page) */
-.prose { max-width: 860px; padding: 24px 0 40px; }
-.prose h2 { font-size: 24px; letter-spacing: -0.02em; font-weight: 600; margin: 40px 0 12px; }
-.prose ul, .prose ol { padding-left: 22px; color: var(--text-2); }
-.prose li { margin: 8px 0; }
-.prose li strong, .prose p strong { color: var(--text); }
-.prose p { color: var(--text-2); }
-.prose code { font-size: 0.88em; padding: 2px 7px; border-radius: 8px; background: var(--fill-hover); color: #cfeaff; }
-.prose table td, .prose table th { min-width: 160px; }
-.tree { overflow-x: auto; padding: 20px 24px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); font: 13px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-2); }
 
 /* footer */
 .footer { margin-top: 80px; padding: 40px 0 120px; border-top: 1px solid var(--line); }
@@ -417,7 +411,9 @@ tbody th { color: var(--text-3); font-weight: 500; width: 180px; white-space: no
   .js .nav a { padding: 13px 18px; font-size: 16px; }
   .js .nav a:not([aria-current]) { color: var(--text); }
   .stats { grid-template-columns: repeat(2, 1fr); }
-  .filters { position: static; }
+  /* Not sticky here, but still positioned: with `static` its z-index stops working and the open
+     dropdowns slide under the positioned favicons and badges of the cards below. */
+  .filters { position: relative; top: auto; }
 }
 @media (max-width: 560px) {
   .wrap { padding: 0 16px; }
@@ -442,9 +438,12 @@ tbody th { color: var(--text-3); font-weight: 500; width: 180px; white-space: no
   .mini-grid .mini:nth-child(n+4) { display: none; } /* the "all by date" link covers the rest */
   .newin { padding: 16px; }
   .cmpbar { bottom: 12px; left: 16px; right: 16px; transform: none; width: auto; max-width: none; }
-  .cmpbar-in { flex-wrap: nowrap; justify-content: space-between; gap: 6px; padding: 6px 6px 6px 14px; }
-  .cmpbar-items, .cmpbar-note, .cmpbar-clear-text { display: none; }
+  .cmpbar-in { justify-content: space-between; gap: 6px; padding: 6px 6px 6px 14px; }
+  .cmpbar-in:has(.cmpbar-note) { border-radius: 24px; }
+  .cmpbar-items, .cmpbar-clear-text { display: none; }
   .cmpbar-label { font-size: 13px; margin-right: auto; }
+  /* The "up to 3 sites" note gets its own line instead of disappearing. */
+  .cmpbar-note { order: 5; flex-basis: 100%; padding: 0 8px 4px 0; }
   .badge[data-why]::after { max-width: 220px; }
 
   /* tighter spacing on phones */

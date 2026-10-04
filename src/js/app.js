@@ -4,29 +4,38 @@ import { search, lookup, suggest, setCache } from './api.js';
 import { matchesMetaFilters } from './classify.js';
 import { t, localePath, fmtNum, taskName, categoryName } from './i18n.js';
 import { grid, pagination, message, skeleton, resultsMeta, siteDetail, compareTable, favicon, esc, icon, sitePath, categoryHref, setLatest } from './templates.js';
-import { readState, writeState, isDeep, hasQuery, defaultSort, effectiveSort, toApiParams, pageCount } from './listing.js';
+import { readState, writeState, isDeep, hasQuery, defaultSort, effectiveSort, toApiParams, pageCount, sortMerged } from './listing.js';
 
 const lang = document.body.dataset.lang === 'en' ? 'en' : 'uk';
 const L = t(lang);
 setLatest(document.body.dataset.latest);
+// Errors shown to the visitor: a 429 from the proxy's rate limit is not "FreeSerp is down".
+const errorText = (e) => (e?.status === 429 ? L.list.busy : L.list.error);
 
 // ---------- response cache: memory + sessionStorage (10 min) ----------
+// Entries are already slim (page text is classified and dropped before caching).
 const mem = new Map();
+const PREFIX = 'fs:';
+const dropStored = () => {
+  try { Object.keys(sessionStorage).filter((k) => k.startsWith(PREFIX)).forEach((k) => sessionStorage.removeItem(k)); } catch { /* storage unavailable */ }
+};
 setCache({
-  get(url) {
-    if (mem.has(url)) return mem.get(url);
+  get(key) {
+    if (mem.has(key)) return mem.get(key);
     try {
-      const v = JSON.parse(sessionStorage.getItem(`fs:${url}`));
+      const v = JSON.parse(sessionStorage.getItem(PREFIX + key));
       if (v && Date.now() - v.at < 600e3) return v.data;
     } catch { /* storage unavailable */ }
     return null;
   },
-  set(url, data) {
-    mem.set(url, data);
-    try {
-      const s = JSON.stringify({ at: Date.now(), data });
-      if (s.length < 400e3) sessionStorage.setItem(`fs:${url}`, s);
-    } catch { /* quota or privacy mode */ }
+  set(key, data) {
+    mem.set(key, data);
+    if (mem.size > 300) mem.delete(mem.keys().next().value);
+    const s = JSON.stringify({ at: Date.now(), data });
+    // Quota full: drop our older entries once and retry, otherwise keep the memory copy only.
+    for (const retry of [false, true]) {
+      try { sessionStorage.setItem(PREFIX + key, s); return; } catch { if (retry) return; dropStored(); }
+    }
   },
 });
 
@@ -105,7 +114,20 @@ function syncCompareButtons() {
 }
 
 const bar = document.querySelector('[data-cmpbar]');
+// The bar is re-rendered wholesale, so its note is announced through one persistent live region.
+const announcer = document.createElement('p');
+announcer.className = 'sr-only';
+announcer.setAttribute('aria-live', 'polite');
+document.body.append(announcer);
 let barNote = '';
+let noteTimer;
+function setBarNote(text) {
+  barNote = text;
+  announcer.textContent = text;
+  clearTimeout(noteTimer);
+  if (text) noteTimer = setTimeout(() => setBarNote(''), 5000);
+  renderBar();
+}
 function renderBar() {
   if (!bar) return;
   const list = compare.get();
@@ -125,13 +147,12 @@ document.addEventListener('compare:change', () => { syncCompareButtons(); render
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-compare]');
   if (btn) {
-    barNote = compare.toggle(btn.dataset.compare) ? '' : L.compare.full;
-    renderBar();
+    setBarNote(compare.toggle(btn.dataset.compare) ? '' : L.compare.full);
     return;
   }
   const rm = e.target.closest('[data-cmp-remove]');
-  if (rm) { barNote = ''; compare.set(compare.get().filter((d) => d !== rm.dataset.cmpRemove)); return; }
-  if (e.target.closest('[data-cmp-clear]')) { barNote = ''; compare.set([]); }
+  if (rm) { compare.set(compare.get().filter((d) => d !== rm.dataset.cmpRemove)); setBarNote(''); return; }
+  if (e.target.closest('[data-cmp-clear]')) { compare.set([]); setBarNote(''); }
 });
 syncCompareButtons();
 renderBar();
@@ -187,6 +208,15 @@ const highlight = (text, q) => {
   return i < 0 ? esc(text) : `${esc(text.slice(0, i))}<mark>${esc(text.slice(i, i + q.length))}</mark>${esc(text.slice(i + q.length))}`;
 };
 
+// Free room above and below an element for a popup: the sticky header and the floating compare bar
+// both cover the viewport.
+function room(rect) {
+  const top = (document.querySelector('.header')?.getBoundingClientRect().bottom || 0) + 8;
+  const cmp = document.querySelector('[data-cmpbar]:not([hidden])');
+  const bottom = (cmp ? cmp.getBoundingClientRect().top : innerHeight) - 8;
+  return { above: rect.top - top - 8, below: bottom - rect.bottom - 8 };
+}
+
 let acCount = 0;
 // Accessible combobox: arrows move, Enter picks the highlighted row, Enter without a row submits the form.
 function autocomplete(input, { source, onPick = (it) => { location.href = it.href; } }) {
@@ -231,6 +261,8 @@ function autocomplete(input, { source, onPick = (it) => { location.href = it.hre
     });
     list.innerHTML = html || `<li class="ac-empty" role="presentation">${L.suggest.empty}</li>`;
     list.hidden = false;
+    // Stop above the compare bar instead of sliding under it.
+    list.style.maxHeight = `${Math.max(160, Math.min(380, room(input.getBoundingClientRect()).below))}px`;
     active = -1;
     input.setAttribute('aria-expanded', 'true');
   }
@@ -247,11 +279,13 @@ function autocomplete(input, { source, onPick = (it) => { location.href = it.hre
     }, 220);
   });
   input.addEventListener('keydown', (e) => {
-    if (list.hidden || !items.length) return;
+    if (list.hidden) return;
+    // Without preventDefault the browser also wipes a type="search" field on Escape.
+    if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+    if (!items.length) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive((active + 1) % items.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((active - 1 + items.length) % items.length); }
     else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); pick(items[active]); }
-    else if (e.key === 'Escape') close();
   });
   input.addEventListener('blur', () => setTimeout(close, 150));
   input.form?.addEventListener('submit', close);
@@ -334,14 +368,8 @@ function customSelect(select) {
     list.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
     wrap.classList.add('is-open');
-    // Prefer opening down; flip up only when the room below is tight. The sticky header and the
-    // floating compare bar both cover the viewport, so measure the space between them.
-    const r = btn.getBoundingClientRect();
-    const top = (document.querySelector('.header')?.getBoundingClientRect().bottom || 0) + 8;
-    const cmp = document.querySelector('[data-cmpbar]:not([hidden])');
-    const bottom = (cmp ? cmp.getBoundingClientRect().top : innerHeight) - 8;
-    const below = bottom - r.bottom - 8;
-    const above = r.top - top - 8;
+    // Prefer opening down; flip up only when the room below is tight.
+    const { above, below } = room(btn.getBoundingClientRect());
     const up = below < 220 && above > below;
     wrap.classList.toggle('dd-up', up);
     list.style.maxHeight = `${Math.max(160, Math.min(380, up ? above : below))}px`;
@@ -426,7 +454,12 @@ if (hero) {
     const cat = catOf();
     // A query that names a task ("музика", "logos") opens the tool finder for it.
     const task = q && TASKS.find((tk) => [taskName(tk.slug, 'uk'), taskName(tk.slug, 'en'), tk.slug].some((v) => lower(v) === lower(q)));
-    if (task) { location.href = localePath(lang, `/tools/${task.slug}/`); return; }
+    if (task) {
+      // A niche picked in the hero narrows the task page too, unless it is the task's own niche.
+      const qs = cat && cat !== task.params.ai_categories ? `?${writeState({ cat })}` : '';
+      location.href = localePath(lang, `/tools/${task.slug}/`) + qs;
+      return;
+    }
     if (!q && NICHES.includes(cat)) { location.href = localePath(lang, `/niche/${slugify(cat)}/`); return; }
     const qs = writeState({ cat: cat || undefined, q: q || undefined });
     location.href = localePath(lang, '/sites/') + (qs ? `?${qs}` : '');
@@ -483,8 +516,12 @@ function initList(root) {
       if (!el.name) continue;
       if (el.type === 'checkbox') el.checked = Boolean(s[el.name]);
       else if (el.name === 'sort') el.value = effectiveSort(cfg, s);
-      else if (el.name === 'cat') el.value = s.cat === 'all' ? '' : s.cat ?? presetCat;
-      else el.value = s[el.name] ?? '';
+      else if (el.name === 'cat') {
+        const v = s.cat === 'all' ? '' : s.cat ?? presetCat;
+        // A category the list does not know yet (from a chip or a link) still gets an option.
+        if (v && ![...el.options].some((o) => o.value === v)) el.add(new Option(categoryName(v, lang), v));
+        el.value = v;
+      } else el.value = s[el.name] ?? '';
     }
     const n = moreKeys.filter((k) => s[k] !== undefined).length;
     const badge = form.querySelector('[data-filters-count]');
@@ -518,7 +555,7 @@ function initList(root) {
     if (!isDeep(s) || plain.q === params.q) return search(params, { signal });
     const [a, b] = await Promise.all([search(params, { signal }), search(plain, { signal })]);
     const seen = new Set();
-    const results = [...a.results, ...b.results].filter((x) => !seen.has(x.domain) && seen.add(x.domain));
+    const results = sortMerged(cfg, s, [...a.results, ...b.results].filter((x) => !seen.has(x.domain) && seen.add(x.domain)));
     return { total: results.length, results, hidden: a.hidden + b.hidden };
   }
 
@@ -545,6 +582,7 @@ function initList(root) {
     else results.innerHTML = skeleton(6);
     if (scroll) root.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
+    let redirect;
     try {
       const data = await fetchList(s, ctrl.signal);
       let html;
@@ -557,6 +595,9 @@ function initList(root) {
           + (slice.length ? grid(slice, lang) : message(data.results.length ? L.list.deepEmpty : L.list.empty))
           + pagination(page, pages, hrefFor(s), lang);
       } else if (!data.results.length && !data.hidden) {
+        // A page past the end (an old link, fewer results now): go to the last real page instead.
+        const last = pageCount(data.total);
+        if (data.total && (s.page || 1) > last) redirect = { ...s, page: last > 1 ? last : undefined };
         html = message(L.list.empty);
       } else {
         // A page can be fully hidden by the blocklist; keep the pagination so later pages stay reachable.
@@ -566,25 +607,34 @@ function initList(root) {
           + (data.results.length ? grid(data.results, lang) : message(L.list.empty))
           + pagination(page, pageCount(data.total), hrefFor(s), lang);
       }
-      results.innerHTML = html;
-      status.textContent = results.querySelector('.results-meta, .msg')?.textContent || '';
-      syncCompareButtons();
+      if (!redirect) {
+        results.innerHTML = html;
+        status.textContent = results.querySelector('.results-meta, .msg')?.textContent || '';
+        syncCompareButtons();
+      }
     } catch (e) {
       if (e.name === 'AbortError') return;
-      results.innerHTML = message(L.list.error, { retry: true, lang });
-      status.textContent = L.list.error;
+      results.innerHTML = message(errorText(e), { retry: true, lang });
+      status.textContent = errorText(e);
     } finally {
       results.classList.remove('is-loading');
       results.removeAttribute('aria-busy');
     }
+    if (redirect) load(redirect);
   }
 
   form.addEventListener('submit', (e) => { e.preventDefault(); clearTimeout(timer); load(readForm(), { push: true }); });
   form.addEventListener('change', (e) => {
     if (e.target.type === 'search') return; // handled by the debounced input listener / submit
     if (cfg.nicheNav && e.target.name === 'cat') {
+      // Another niche is another page; the other filters come along.
       const v = e.target.value;
-      location.href = !v ? localePath(lang, '/sites/') : NICHES.includes(v) ? localePath(lang, `/niche/${slugify(v)}/`) : localePath(lang, `/sites/?cat=${encodeURIComponent(v)}`);
+      const rest = readForm();
+      delete rest.cat;
+      delete rest.page;
+      const own = NICHES.includes(v);
+      const qs = writeState(!v || own ? rest : { cat: v, ...rest });
+      location.href = localePath(lang, own ? `/niche/${slugify(v)}/` : '/sites/') + (qs ? `?${qs}` : '');
       return;
     }
     load(readForm(), { push: true });
@@ -656,18 +706,24 @@ if (siteEl?.hasAttribute('data-prerendered')) {
     document.title = L.site.notFound;
     siteEl.innerHTML = `${message(L.site.notFound)}<p><a class="btn btn-ghost" href="${localePath(lang, '/sites/')}">${L.site.back}</a></p>`;
   };
+  // Same trail as on prerendered site pages.
+  const crumbs = (d) => `<nav class="crumbs" aria-label="${esc(L.crumbsLabel)}"><a href="${localePath(lang, '/')}">${esc(L.siteName)}</a><span aria-hidden="true">/</span><a href="${localePath(lang, '/sites/')}">${esc(L.nav.catalog)}</a><span aria-hidden="true">/</span><span aria-current="page">${esc(d)}</span></nav>`;
+  const show = () => lookup(domain).then((s) => {
+    if (!s) { notFound(); return; }
+    siteEl.innerHTML = siteDetail(s, lang);
+    siteEl.insertAdjacentHTML('beforebegin', crumbs(s.domain));
+    document.title = L.site.title(s);
+    document.querySelector('meta[name="description"]')?.setAttribute('content', s.summary.slice(0, 158));
+    syncCompareButtons();
+    loadSimilar(similarEl, s.domain, s.categories[0]);
+  }).catch((e) => { siteEl.innerHTML = message(errorText(e), { retry: true, lang }); });
   if (!domain) location.replace(localePath(lang, '/sites/'));
   else if (!DOMAIN.test(domain)) notFound();
   else {
-    lookup(domain).then((s) => {
-      if (!s) { notFound(); return; }
-      siteEl.innerHTML = siteDetail(s, lang);
-      document.title = L.site.title(s);
-      document.querySelector('meta[name="description"]')?.setAttribute('content', s.summary.slice(0, 158));
-      document.querySelector('link[rel="canonical"]')?.setAttribute('href', location.origin + sitePath(lang, s.domain));
-      syncCompareButtons();
-      loadSimilar(similarEl, s.domain, s.categories[0]);
-    }).catch(() => { siteEl.innerHTML = message(L.list.error, { retry: false, lang }); });
+    siteEl.addEventListener('click', (e) => {
+      if (e.target.closest('[data-retry]')) { siteEl.innerHTML = `<p class="msg">${esc(L.site.loading)}</p>`; show(); }
+    });
+    show();
   }
 }
 
@@ -675,9 +731,20 @@ if (siteEl?.hasAttribute('data-prerendered')) {
 const view = document.querySelector('[data-compare-view]');
 if (view) {
   const note = document.querySelector('[data-cmp-note]');
+  const restoreEl = document.querySelector('[data-cmp-restore]');
   const addForm = document.querySelector('[data-cmp-add]');
   const fromUrl = (new URLSearchParams(location.search).get('d') || '').split(',').map((d) => d.trim().toLowerCase()).filter((d) => DOMAIN.test(d)).slice(0, 3);
-  if (fromUrl.length) compare.set(fromUrl);
+  const mine = compare.get();
+  if (fromUrl.length) {
+    // A shared link shows its own sites; the visitor's own selection is offered back, not lost silently.
+    const same = mine.length === fromUrl.length && mine.every((d) => fromUrl.includes(d));
+    if (mine.length && !same && restoreEl) {
+      restoreEl.innerHTML = `${esc(L.compare.fromLink)} <button type="button" class="btn btn-sm btn-ghost">${esc(L.compare.restore(mine))}</button>`;
+      restoreEl.hidden = false;
+      restoreEl.querySelector('button').addEventListener('click', () => { restoreEl.hidden = true; compare.set(mine); });
+    }
+    compare.set(fromUrl, { quiet: true });
+  }
 
   let renderId = 0;
   const render = async () => {
@@ -687,31 +754,41 @@ if (view) {
     note.textContent = '';
     if (!list.length) { view.innerHTML = message(L.compare.empty); return; }
     view.innerHTML = compareTable(list.map((domain) => ({ domain })), lang);
-    // null = not in the index, undefined = request failed (keep it: the next visit may succeed).
-    const found = await Promise.all(list.map((d) => lookup(d).catch(() => undefined)));
+    // null = not in the index; a failed request keeps its column, so it can be retried or removed.
+    const found = await Promise.all(list.map((d) => lookup(d).catch((error) => ({ domain: d, failed: true, error }))));
     if (id !== renderId) return; // a newer change already re-rendered
     const missing = list.filter((d, i) => found[i] === null);
+    const failed = found.filter((x) => x?.failed);
     if (missing.length) {
-      note.textContent = missing.map(L.compare.notFound).join(' · ');
       // Drop them from the list: they have no column, so they could not be removed otherwise.
       compare.set(list.filter((d) => !missing.includes(d)), { quiet: true });
       history.replaceState(null, '', compareHref(compare.get()));
     }
     const sites = found.filter(Boolean);
     view.innerHTML = sites.length ? compareTable(sites, lang) : message(L.compare.empty);
+    const notes = missing.map(L.compare.notFound);
+    if (failed.length) notes.push(failed.some((x) => x.error?.status === 429) ? L.list.busy : L.compare.failed(failed.map((x) => x.domain)));
+    note.textContent = notes.join(' · ');
   };
 
   const input = addForm.elements.domain;
   async function addDomain(raw) {
+    const typed = input.value;
+    // Clear the field only if the visitor has not started typing something else meanwhile.
+    const done = () => { if (input.value === typed) input.value = ''; };
     const d = raw.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
     note.textContent = '';
-    if (!DOMAIN.test(d)) { note.textContent = L.compare.notFound(raw); return; }
-    const list = compare.get();
-    if (list.includes(d)) { input.value = ''; return; }
-    if (list.length >= 3) { note.textContent = L.compare.full; return; }
-    const s = await lookup(d).catch(() => null);
+    if (!DOMAIN.test(d)) { note.textContent = L.compare.invalid; return; }
+    if (compare.get().includes(d)) { done(); return; }
+    if (compare.get().length >= 3) { note.textContent = L.compare.full; return; }
+    let s;
+    try { s = await lookup(d); } catch (e) { note.textContent = errorText(e); return; }
     if (!s) { note.textContent = L.compare.notFound(d); return; }
-    input.value = '';
+    // Read the list again: another add may have finished while this lookup was in flight.
+    const list = compare.get();
+    if (list.includes(d)) { done(); return; }
+    if (list.length >= 3) { note.textContent = L.compare.full; return; }
+    done();
     compare.set([...list, d]);
   }
   addForm.addEventListener('submit', (e) => { e.preventDefault(); addDomain(input.value); });
@@ -722,6 +799,7 @@ if (view) {
   view.addEventListener('click', (e) => {
     const b = e.target.closest('[data-remove]');
     if (b) compare.set(compare.get().filter((d) => d !== b.dataset.remove));
+    if (e.target.closest('[data-cmp-retry]')) render();
   });
   document.addEventListener('compare:change', render);
   render();

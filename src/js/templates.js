@@ -1,6 +1,7 @@
 // Isomorphic HTML templates: the build script prerenders with them, the browser re-renders with them.
-import { NICHES, ALL_CATEGORIES, AI_BUILDERS, slugify } from './config.js';
+import { NICHES, ALL_CATEGORIES, AI_BUILDERS, FIRST_SEEN_EPOCH, slugify } from './config.js';
 import { t, categoryName, fmtDate, fmtNum, localePath } from './i18n.js';
+import { lookalike } from './classify.js';
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '#');
@@ -8,7 +9,16 @@ const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : '#');
 let latestDate = null;
 export const setLatest = (d) => { latestDate = d || null; };
 export const isNew = (s) => Boolean(latestDate && s.wentLive && Date.parse(latestDate) - Date.parse(s.wentLive) <= 13 * 864e5);
-const newBadge = (s, lang) => (isNew(s) ? `<span class="badge b-new" tabindex="0" data-why="${esc(t(lang).card.newWhy)}">${esc(t(lang).card.new)}<span class="sr-only">. ${esc(t(lang).card.newWhy)}</span></span>` : '');
+
+// The tooltip is CSS-only (data-why), so the same text is repeated for screen readers. Badges open
+// their tooltip on tap or focus; in cards they stay out of the Tab order (24 cards × 3 badges would
+// add ~70 stops to every list), the site page keeps them in it.
+const whyBadge = (cls, label, why, focusable = true) =>
+  `<span class="badge ${cls}" tabindex="${focusable ? 0 : -1}" data-why="${esc(why)}">${esc(label)}<span class="sr-only">. ${esc(why)}</span></span>`;
+
+const newBadge = (s, lang, focusable = true) => (isNew(s) ? whyBadge('b-new', t(lang).card.new, t(lang).card.newWhy, focusable) : '');
+// A domain named after a famous brand but not its official site (classify.lookalike).
+const lookalikeBadge = (s, lang, focusable = true) => (s.lookalike ? whyBadge('b-warn', t(lang).lookalike.label(s.lookalike.brand), t(lang).lookalike.why(s.lookalike), focusable) : '');
 
 // ai_source mixes builder ids (lovable) with raw generator tags ("gen:gridsome v0.7.23").
 // `not_ai` is the API's "no builder detected" marker, not something to show.
@@ -49,8 +59,9 @@ const ICON_PATHS = {
 export const icon = (name, cls = 'icon') =>
   `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ''}</svg>`;
 
+// No referrer: Google needs only the domain, not which page of ours the visitor is on.
 export const favicon = (domain, size = 32) =>
-  `<span class="fav" style="--s:${size}px" data-letter="${esc(domain[0]?.toUpperCase() || '?')}"><img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&amp;sz=64" alt="" width="${size}" height="${size}" loading="lazy" decoding="async"></span>`;
+  `<span class="fav" style="--s:${size}px" data-letter="${esc(domain[0]?.toUpperCase() || '?')}"><img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&amp;sz=64" alt="" width="${size}" height="${size}" loading="lazy" decoding="async" referrerpolicy="no-referrer"></span>`;
 
 export const sitePath = (lang, domain) => localePath(lang, `/site/${encodeURIComponent(domain)}/`);
 
@@ -62,20 +73,16 @@ function whyText(lang, list) {
   return list?.length ? `${t(lang).why.title}: «${list.join('», «')}»` : t(lang).why.none;
 }
 
-// The tooltip is CSS-only (data-why), so the same text is repeated for screen readers.
-const whyBadge = (cls, label, why) =>
-  `<span class="badge ${cls}" tabindex="0" data-why="${esc(why)}">${esc(label)}<span class="sr-only">. ${esc(why)}</span></span>`;
+export const pricingBadge = (meta, lang, focusable) => whyBadge(`b-${meta.pricing}`, t(lang).pricing[meta.pricing], whyText(lang, meta.evidence.pricing), focusable);
 
-export const pricingBadge = (meta, lang) => whyBadge(`b-${meta.pricing}`, t(lang).pricing[meta.pricing], whyText(lang, meta.evidence.pricing));
+export const accessBadge = (meta, lang, focusable) => whyBadge(`a-${meta.access}`, t(lang).access[meta.access], whyText(lang, meta.evidence.access), focusable);
 
-export const accessBadge = (meta, lang) => whyBadge(`a-${meta.access}`, t(lang).access[meta.access], whyText(lang, meta.evidence.access));
-
-export function badges(meta, lang, { source, withUnknown = true } = {}) {
+export function badges(meta, lang, { source, withUnknown = true, focusable = true } = {}) {
   const out = [];
-  if (meta.pricing !== 'unknown' || withUnknown) out.push(pricingBadge(meta, lang));
-  if (meta.access !== 'unknown' || withUnknown) out.push(accessBadge(meta, lang));
-  if (meta.api) out.push(whyBadge('b-tag', 'API', whyText(lang, meta.evidence.api)));
-  if (meta.opensource) out.push(whyBadge('b-tag', 'Open source', whyText(lang, meta.evidence.opensource)));
+  if (meta.pricing !== 'unknown' || withUnknown) out.push(pricingBadge(meta, lang, focusable));
+  if (meta.access !== 'unknown' || withUnknown) out.push(accessBadge(meta, lang, focusable));
+  if (meta.api) out.push(whyBadge('b-tag', 'API', whyText(lang, meta.evidence.api), focusable));
+  if (meta.opensource) out.push(whyBadge('b-tag', 'Open source', whyText(lang, meta.evidence.opensource), focusable));
   if (source && AI_BUILDERS.includes(source)) out.push(`<span class="badge b-ai">${icon('sparkles', 'icon icon-xs')}${esc(t(lang).builders[source] || source)}</span>`);
   return out.join('');
 }
@@ -93,7 +100,7 @@ export function card(s, lang) {
     <span class="dr" title="Domain Rating">${L.card.dr} ${s.dr ?? '—'}</span>
   </div>
   <p class="card-summary" lang="en">${esc(s.summary)}</p>
-  <div class="badges">${newBadge(s, lang)}${badges(s.meta, lang, { source: s.source, withUnknown: false })}</div>
+  <div class="badges">${lookalikeBadge(s, lang, false)}${newBadge(s, lang, false)}${badges(s.meta, lang, { source: s.source, withUnknown: false, focusable: false })}</div>
   ${cats ? `<div class="chips">${cats}</div>` : ''}
   <div class="card-foot">
     <span class="muted small">${L.card.live} ${fmtDate(s.wentLive, lang)}</span>
@@ -164,7 +171,7 @@ export function siteDetail(s, lang) {
     </div>
   </div>
   <p class="site-summary" lang="en">${esc(s.summary)}</p>
-  <div class="badges badges-lg">${newBadge(s, lang)}${badges(s.meta, lang, { source: s.source })}</div>
+  <div class="badges badges-lg">${lookalikeBadge(s, lang)}${newBadge(s, lang)}${badges(s.meta, lang, { source: s.source })}</div>
   <h2 class="h3">${S.facts}</h2>
   <dl class="facts">
     ${row('Domain Rating', `<strong>${s.dr ?? '—'}</strong> / 100`)}
@@ -175,22 +182,29 @@ export function siteDetail(s, lang) {
     ${row(S.server, esc(s.server || '—'))}
     ${row(S.tld, s.tld ? `.${esc(s.tld)}` : '—')}
     ${row(S.wentLive, fmtDate(s.wentLive, lang))}
-    ${row(S.firstSeen, fmtDate(s.firstSeen, lang))}
+    ${row(S.firstSeen, s.firstSeen === FIRST_SEEN_EPOCH ? esc(S.firstSeenEarly) : fmtDate(s.firstSeen, lang))}
   </dl>
 </article>`;
 }
 
 // Items without `meta` (just { domain }) render as a same-shaped skeleton, so swapping in the
-// loaded data does not move the layout.
+// loaded data does not move the layout; `failed: true` items (lookup error) keep a column with dashes
+// and a retry button, so they can still be retried or removed.
 export function compareTable(sites, lang) {
   const L = t(lang);
   const S = L.site;
   const skel = (lines) => `<span class="skel-line"></span>`.repeat(lines);
-  const cell = (fn, last) => sites.map((s) => `<td>${s.meta ? fn(s) : skel(last ? 6 : 1)}</td>`).join('');
+  const failed = `<span class="small muted">${esc(L.compare.loadFailed)}</span><br><button type="button" class="btn btn-sm btn-ghost cmp-retry" data-cmp-retry>${esc(L.list.retry)}</button>`;
+  const empty = (s, last) => (s.failed ? (last ? failed : '—') : skel(last ? 6 : 1));
+  const cell = (fn, last, always) => sites.map((s) => `<td>${s.meta || always ? fn(s) : empty(s, last)}</td>`).join('');
+  // Known from the domain alone, so the row is there from the first (skeleton) render.
+  const look = (s) => s.lookalike || lookalike(s.domain);
   const rows = [
+    // Plain text, not a tooltip badge: the table scrolls, and a tooltip above the first rows would be cut off.
+    ...(sites.some(look) ? [[L.lookalike.row, (s) => (look(s) ? `<span class="warn-text">${esc(L.lookalike.label(look(s).brand))}</span><br><span class="small muted">${esc(L.lookalike.why(look(s)))}</span>` : '—'), true]] : []),
     ['Domain Rating', (s) => `<strong>${s.dr ?? '—'}</strong>`],
-    [S.pricing, (s) => pricingBadge(s.meta, lang)],
-    [S.access, (s) => accessBadge(s.meta, lang)],
+    [S.pricing, (s) => pricingBadge(s.meta, lang, true)],
+    [S.access, (s) => accessBadge(s.meta, lang, true)],
     ['API', (s) => (s.meta.api ? icon('check', 'icon icon-sm ok') : '—')],
     ['Open source', (s) => (s.meta.opensource ? icon('check', 'icon icon-sm ok') : '—')],
     [S.niches, (s) => s.categories.map((c) => esc(categoryName(c, lang))).join(', ') || '—'],
@@ -203,7 +217,7 @@ export function compareTable(sites, lang) {
   <thead><tr><th scope="col"></th>${sites.map((s) => `<th scope="col">
     <div class="cmp-head">${favicon(s.domain, 28)}<a href="${sitePath(lang, s.domain)}">${esc(s.domain)}</a>
     <button type="button" class="icon-btn" data-remove="${esc(s.domain)}" aria-label="${L.compare.remove} ${esc(s.domain)}">${icon('x', 'icon icon-sm')}</button></div></th>`).join('')}</tr></thead>
-  <tbody>${rows.map(([label, fn], i) => `<tr><th scope="row">${esc(label)}</th>${cell(fn, i === rows.length - 1)}</tr>`).join('')}</tbody>
+  <tbody>${rows.map(([label, fn, always], i) => `<tr><th scope="row">${esc(label)}</th>${cell(fn, i === rows.length - 1, always)}</tr>`).join('')}</tbody>
 </table></div>`;
 }
 

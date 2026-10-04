@@ -9,6 +9,8 @@ import proxy from '../netlify/functions/fs.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
 const PORT = Number(process.env.PORT) || 8080;
+// Loopback only: a dev server (with a working API proxy) should not be reachable from the LAN.
+const HOST = process.env.HOST || '127.0.0.1';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.xml': 'application/xml', '.txt': 'text/plain', '.json': 'application/json' };
 
 // Just enough TOML for the [[headers]] blocks: `for = "/x/*"` plus `Key = "value"` lines.
@@ -57,4 +59,4 @@ createServer(async (req, res) => {
     if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain' });
     res.end('Server error');
   }
-}).listen(PORT, () => console.log(`AI Radar → http://localhost:${PORT}`));
+}).listen(PORT, HOST, () => console.log(`AI Radar → http://localhost:${PORT}`));

@@ -2,7 +2,7 @@
 
 export const API_BASE = 'https://freeserp.ai/api.php';
 // FreeSerp sends `Access-Control-Allow-Origin: *` twice, which browsers reject, so the browser
-// goes through a same-origin proxy (Netlify rewrite / scripts/serve.mjs) instead.
+// goes through a same-origin proxy (netlify/functions/fs.mjs, also run by scripts/serve.mjs) instead.
 export const API_PROXY = '/api/fs';
 
 // Identification fields requested by the FreeSerp docs ("Identify yourself").
@@ -15,6 +15,16 @@ export const PAGE_SIZE = 24;
 export const DEEP_SCAN_SIZE = 100;
 // API limit for index=sites: from + size <= 10 000.
 export const MAX_WINDOW = 10000;
+// first_seen is 2025-01-01 for every domain the index already knew when tracking began (google.com
+// too), so that value means "before 2025", not a discovery date.
+export const FIRST_SEEN_EPOCH = '2025-01-01';
+
+// Real calendar dates only: FreeSerp answers 502 to impossible ones such as 2026-02-31.
+export const isDate = (v) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v || '')) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+};
 
 // Task finder. `params` go straight to the API; tasks with `q` sort by relevance by default,
 // because sorting a text match by DR surfaces big unrelated sites. `widen` is the keyword used when
@@ -72,7 +82,13 @@ export const ALL_CATEGORIES = [
   'Marketing & Ads', 'Social Media', 'Sales & CRM', 'Lead Gen & Outreach', 'Recruiting & HR',
   'Education & Tutoring', 'Healthcare & Medical', 'Finance & Trading', 'Security & Moderation',
   'Interior & Architecture', 'E-commerce', 'Directory / Aggregator', 'Other AI',
+  // Found in the data later (checked 2026-10-04, 100–900 sites each).
+  'Document & PDF AI', 'Notes & Meetings', 'Presentations & Slides', 'Email AI', 'Grammar & Editing',
+  'OCR & Extraction', 'Coding Assistant', 'Conversational AI', 'AI Companion & Character', 'Photography',
+  'Real Estate', 'Legal', 'Fitness & Wellness', 'Food & Recipe', 'Travel', 'Gaming',
 ];
+// The taxonomy keeps growing: an unknown category from a chip or a shared link is still a valid filter.
+export const CATEGORY_RX = /^[A-Za-z0-9][A-Za-z0-9 &\/,.+'-]{1,59}$/;
 
 // Builder / stack filter. `ai` maps to the API's ai=1 (any AI site builder).
 // Only values that return results with ai_startups=1 (checked 2026-10-04: webflow = 0, react = 1, so both dropped).
@@ -85,6 +101,44 @@ export const TLDS = ['ai', 'io', 'com', 'app', 'dev', 'co', 'so', 'tech', 'net',
 // Unambiguous terms match anywhere, also glued inside a domain (ainudegenerator.app, nudeai.com).
 // Ambiguous ones need a word start: `sex\w*` catches sexhd88.live but not essex.ac.uk.
 export const BLOCKLIST = /nsfw|porn|nude|nudif|undress|hentai|onlyfans|\b(xxx\w*|naked|sex\w*|erotic\w*|uncensored|casino\w*|betting|gambl\w*|gamstop)\b|domain is expired|domain (is )?for sale|buy this domain/i;
+
+// Real sites that are not tools: agencies and consultancies, portfolios and personal pages, unfinished
+// templates. Judged by the API's own summary, which says what the site is ("X is a Boston-based design
+// agency", "the personal website of…"); "for marketing agencies" does not match, and a summary that
+// also talks about building or generating things keeps the site (a portfolio builder is a tool).
+// Checked on 2 018 sites from the index (2026-10-04). Lists only: a site card or a comparison still
+// opens such a domain.
+export const NOT_A_PRODUCT = {
+  agency: /\b(?:is an? (?:[\w-]+ ){0,4}?(?:agency|consultancy|(?:software|web|app|mobile app) (?:development|engineering) (?:company|firm|studio))|agency (?:based|located|headquartered) in)\b/i,
+  personal: /\b(?:(?:personal|academic) (?:academic )?(?:website|homepage|home page|portfolio|blog|site)|professional (?:academic )?(?:portfolio|homepage|home page)|portfolio (?:website|site) (?:of|for))\b/i,
+  builder: /\b(?:builder|generator|maker|templates?|create (?:a |your )|build (?:a |your ))/i,
+  title: /^(?:create next app|react app|vite \+ react(?: \+ ts)?|vite app|welcome to nginx!?)$/i,
+};
+
+// Famous AI brands and their official domains. The index has many third-party sites named after
+// them (chatgptxt.com "Chat GPT login", mms-deepseek.com "官方网站", CapCut MOD APKs), and they
+// often rank first, so such domains get an "unofficial" label. Ambiguous words (gemini, copilot,
+// runway, jasper…) are left out or narrowed (runwayml, leonardoai; "canvas" is not Canva).
+export const BRANDS = [
+  { name: 'ChatGPT', token: 'chatgpt', official: ['chatgpt.com', 'openai.com'] },
+  { name: 'OpenAI', token: 'openai', official: ['openai.com', 'openai.fund'] },
+  { name: 'Claude', token: 'claude', official: ['claude.ai', 'claude.com', 'anthropic.com'] },
+  { name: 'Anthropic', token: 'anthropic', official: ['anthropic.com'] },
+  { name: 'Midjourney', token: 'midjourney', official: ['midjourney.com'] },
+  { name: 'Perplexity', token: 'perplexity', official: ['perplexity.ai'] },
+  { name: 'DeepSeek', token: 'deepseek', official: ['deepseek.com'] },
+  { name: 'Grok', token: 'grok', official: ['grok.com', 'x.ai'] },
+  { name: 'ElevenLabs', token: 'elevenlabs', official: ['elevenlabs.io'] },
+  { name: 'Suno', token: 'suno', official: ['suno.com', 'suno.ai'] },
+  { name: 'HeyGen', token: 'heygen', official: ['heygen.com'] },
+  { name: 'Synthesia', token: 'synthesia', official: ['synthesia.io'] },
+  { name: 'Ideogram', token: 'ideogram', official: ['ideogram.ai'] },
+  { name: 'Leonardo.Ai', token: 'leonardoai', official: ['leonardo.ai'] },
+  { name: 'Runway', token: 'runwayml', official: ['runwayml.com'] },
+  { name: 'Canva', token: 'canva', match: /canva(?!s)/, official: ['canva.com'] },
+  { name: 'CapCut', token: 'capcut', official: ['capcut.com'] },
+  { name: 'InShot', token: 'inshot', official: ['inshot.com'] },
+];
 
 export const slugify = (s) => s.toLowerCase().replace(/&/g, ' ').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 export const nicheBySlug = (slug) => NICHES.find((n) => slugify(n) === slug);

@@ -1,8 +1,8 @@
 // Same-origin proxy to FreeSerp. A plain Netlify rewrite forwarded any query (index=web, size=100,
 // someone else's agent…), so anyone could use this site's domain as an open FreeSerp relay.
-// Here only the parameters the UI sends get through, values are checked, and the identity is ours.
-// scripts/serve.mjs runs this same handler locally.
-import { API_BASE, API_IDENTITY } from '../../src/js/config.js';
+// Here only the parameters the UI sends get through, values are checked, the identity is ours and
+// the answer is always JSON. scripts/serve.mjs runs this same handler locally.
+import { API_BASE, API_IDENTITY, isDate } from '../../src/js/config.js';
 
 const flag = /^1$/;
 const intIn = (min, max) => (v) => /^\d{1,5}$/.test(v) && +v >= min && +v <= max;
@@ -19,8 +19,9 @@ const ALLOWED = {
   tld: /^[a-z]{2,12}$/,
   dr_min: intIn(0, 100),
   dr_max: intIn(0, 100),
-  from_date: /^\d{4}-\d{2}-\d{2}$/,
-  to_date: /^\d{4}-\d{2}-\d{2}$/,
+  // Impossible dates (2026-02-31) make FreeSerp answer 502.
+  from_date: isDate,
+  to_date: isDate,
   sort: /^(relevance|dr|went_live)$/,
   order: /^(asc|desc)$/,
   size: intIn(1, 100),
@@ -28,33 +29,50 @@ const ALLOWED = {
   content_max: intIn(1, 4000),
 };
 
-const json = (status, body, extra = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...extra } });
+// Whatever FreeSerp sends (e.g. its Cloudflare HTML error page), the browser gets JSON that cannot
+// render as a page on this origin. Function responses do not get the CSP from netlify.toml.
+const SAFE = {
+  'Content-Type': 'application/json; charset=utf-8',
+  'X-Content-Type-Options': 'nosniff',
+  'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
+};
+const json = (status, body, extra = {}) => new Response(JSON.stringify(body), { status, headers: { ...SAFE, 'Cache-Control': 'no-store', ...extra } });
 
 export default async function handler(req) {
-  if (req.method !== 'GET') return json(405, { ok: false, error: 'method' }, { Allow: 'GET' });
-  const out = new URLSearchParams();
-  for (const [k, v] of new URL(req.url).searchParams) {
-    const check = ALLOWED[k];
-    if (!check) continue; // unknown keys (index, agent, project…) are dropped, not forwarded
-    if (!(typeof check === 'function' ? check(v) : check.test(v))) return json(400, { ok: false, error: `bad ${k}` });
-    out.set(k, v);
-  }
-  for (const [k, v] of Object.entries(API_IDENTITY)) out.set(k, v);
-
   try {
+    if (req.method !== 'GET') return json(405, { ok: false, error: 'method' }, { Allow: 'GET' });
+    const out = new URLSearchParams();
+    for (const [k, v] of new URL(req.url).searchParams) {
+      // Own keys only: `__proto__`, `constructor`, `toString`… are not parameters.
+      if (!Object.hasOwn(ALLOWED, k)) continue; // unknown keys (index, agent, project…) are dropped, not forwarded
+      const check = ALLOWED[k];
+      if (!(typeof check === 'function' ? check(v) : check.test(v))) return json(400, { ok: false, error: `bad ${k}` });
+      out.set(k, v);
+    }
+    for (const [k, v] of Object.entries(API_IDENTITY)) out.set(k, v);
+
     const up = await fetch(`${API_BASE}?${out}`, { signal: AbortSignal.timeout(15000) });
+    const text = await up.text();
+    let data = null;
+    try { data = JSON.parse(text); } catch { /* an HTML error page, an empty body… */ }
+    // Only a real answer is passed on and cached: a FreeSerp hiccup must not stick in the CDN.
+    if (!up.ok || !data || data.ok === false) {
+      return json(up.status === 429 ? 429 : 502, { ok: false, error: data?.error || `upstream ${up.status}` });
+    }
     // FreeSerp itself caches for 30 s; a short shared cache keeps repeated filter clicks off the API.
-    // Errors are never cached, so a FreeSerp hiccup does not stick for five minutes.
-    const cache = up.ok
-      ? { 'Cache-Control': 'public, max-age=300', 'Netlify-CDN-Cache-Control': 'public, max-age=300, stale-while-revalidate=600', 'Netlify-Vary': 'query' }
-      : { 'Cache-Control': 'no-store' };
-    return new Response(await up.arrayBuffer(), {
-      status: up.status,
-      headers: { 'Content-Type': up.headers.get('content-type') || 'application/json', ...cache },
+    return new Response(text, {
+      status: 200,
+      headers: { ...SAFE, 'Cache-Control': 'public, max-age=300', 'Netlify-CDN-Cache-Control': 'public, max-age=300, stale-while-revalidate=600', 'Netlify-Vary': 'query' },
     });
   } catch {
     return json(502, { ok: false, error: 'proxy' });
   }
 }
 
-export const config = { path: '/api/fs' };
+// Enforced by Netlify at the edge (all plans; scripts/serve.mjs ignores it). A visitor browsing makes
+// a few requests a minute; a script hammering the proxy gets 429 before it reaches FreeSerp or uses
+// up the site's function quota.
+export const config = {
+  path: '/api/fs',
+  rateLimit: { windowLimit: 60, windowSize: 60, aggregateBy: ['ip', 'domain'] },
+};
