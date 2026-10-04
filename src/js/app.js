@@ -234,6 +234,154 @@ function autocomplete(input, { source, onPick = (it) => { location.href = it.hre
   });
 }
 
+// ---------- custom selects ----------
+// The native <select> stays in the form (FormData, change events, no-JS fallback) but is hidden;
+// a button + listbox in the app's style drives it. Programmatic `select.value = …` (used by the
+// list controller) is intercepted so the button label always matches.
+const nativeValue = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+let ddCount = 0;
+
+function customSelect(select) {
+  const id = `dd-${++ddCount}`;
+  const wrap = document.createElement('span');
+  wrap.className = 'dd';
+  select.before(wrap);
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = `${select.className} dd-btn`;
+  btn.setAttribute('aria-haspopup', 'listbox');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.setAttribute('aria-controls', id);
+  const list = document.createElement('ul');
+  list.className = 'ac dd-list';
+  list.id = id;
+  list.tabIndex = -1;
+  list.setAttribute('role', 'listbox');
+  list.hidden = true;
+  // Button first: a wrapping <label> then targets it, so clicking the label text opens the list.
+  wrap.append(btn, select, list);
+  select.classList.add('dd-native');
+  select.tabIndex = -1;
+  select.setAttribute('aria-hidden', 'true');
+
+  const label = select.closest('label')?.querySelector('.field-label, .sr-only')?.textContent.trim() || '';
+  const options = () => [...select.options];
+  let active = -1;
+
+  function refresh() {
+    const opt = select.selectedOptions[0] || select.options[0];
+    btn.textContent = opt?.textContent || '';
+    btn.setAttribute('aria-label', label ? `${label}: ${btn.textContent}` : btn.textContent);
+  }
+  Object.defineProperty(select, 'value', {
+    configurable: true,
+    get() { return nativeValue.get.call(this); },
+    set(v) { nativeValue.set.call(this, v); refresh(); },
+  });
+
+  function render() {
+    let i = 0;
+    const optHtml = (o) => {
+      const sel = o.selected;
+      return `<li role="option" id="${id}-${i}" data-i="${i++}" aria-selected="${sel}">${esc(o.textContent)}${sel ? icon('check', 'icon icon-sm dd-check') : ''}</li>`;
+    };
+    list.innerHTML = [...select.children].map((el) => (el.tagName === 'OPTGROUP'
+      ? `<li class="ac-group" role="presentation">${esc(el.label)}</li>${[...el.children].map(optHtml).join('')}`
+      : optHtml(el))).join('');
+  }
+
+  function setActive(i) {
+    const items = list.querySelectorAll('[role="option"]');
+    if (!items.length) return;
+    active = Math.max(0, Math.min(items.length - 1, i));
+    items.forEach((el) => el.classList.toggle('is-active', Number(el.dataset.i) === active));
+    list.setAttribute('aria-activedescendant', `${id}-${active}`);
+    items[active].scrollIntoView({ block: 'nearest' });
+  }
+
+  function open() {
+    if (!list.hidden) return;
+    document.dispatchEvent(new CustomEvent('dd:open', { detail: list }));
+    render();
+    list.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    wrap.classList.add('is-open');
+    // Prefer opening down; flip up only when the room below is tight. The sticky header and the
+    // floating compare bar both cover the viewport, so measure the space between them.
+    const r = btn.getBoundingClientRect();
+    const top = (document.querySelector('.header')?.getBoundingClientRect().bottom || 0) + 8;
+    const cmp = document.querySelector('[data-cmpbar]:not([hidden])');
+    const bottom = (cmp ? cmp.getBoundingClientRect().top : innerHeight) - 8;
+    const below = bottom - r.bottom - 8;
+    const above = r.top - top - 8;
+    const up = below < 220 && above > below;
+    wrap.classList.toggle('dd-up', up);
+    list.style.maxHeight = `${Math.max(160, Math.min(380, up ? above : below))}px`;
+    wrap.classList.remove('dd-right');
+    if (list.getBoundingClientRect().right > innerWidth - 8) wrap.classList.add('dd-right');
+    list.focus({ preventScroll: true });
+    setActive(Math.max(0, select.selectedIndex));
+  }
+
+  function close(focusBtn = true) {
+    if (list.hidden) return;
+    list.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    wrap.classList.remove('is-open');
+    list.removeAttribute('aria-activedescendant');
+    if (focusBtn) btn.focus({ preventScroll: true });
+  }
+
+  function choose(i) {
+    const opt = options()[i];
+    close();
+    if (!opt || opt.selected) return;
+    select.value = opt.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  btn.addEventListener('click', (e) => { e.preventDefault(); list.hidden ? open() : close(); });
+  btn.addEventListener('keydown', (e) => {
+    if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); open(); }
+  });
+
+  let typed = '';
+  let typedTimer;
+  list.addEventListener('keydown', (e) => {
+    const n = options().length;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(active + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(active - 1); }
+    else if (e.key === 'Home') { e.preventDefault(); setActive(0); }
+    else if (e.key === 'End') { e.preventDefault(); setActive(n - 1); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(active); }
+    else if (e.key === 'Escape') { e.preventDefault(); close(); }
+    else if (e.key === 'Tab') close(false);
+    else if (e.key.length === 1) {
+      // Type-ahead: jump to the first option starting with the typed letters.
+      clearTimeout(typedTimer);
+      typed += e.key.toLowerCase();
+      typedTimer = setTimeout(() => { typed = ''; }, 600);
+      const hit = options().findIndex((o) => o.textContent.toLowerCase().startsWith(typed));
+      if (hit >= 0) setActive(hit);
+    }
+  });
+  list.addEventListener('mousemove', (e) => {
+    const li = e.target.closest('[role="option"]');
+    if (li && Number(li.dataset.i) !== active) setActive(Number(li.dataset.i));
+  });
+  list.addEventListener('click', (e) => {
+    const li = e.target.closest('[role="option"]');
+    if (li) choose(Number(li.dataset.i));
+  });
+  list.addEventListener('focusout', (e) => { if (!wrap.contains(e.relatedTarget)) close(false); });
+  document.addEventListener('pointerdown', (e) => { if (!wrap.contains(e.target)) close(false); });
+  document.addEventListener('dd:open', (e) => { if (e.detail !== list) close(false); });
+
+  refresh();
+}
+
+document.querySelectorAll('select.input').forEach(customSelect);
+
 // Home hero: niche + query. A niche alone opens its SEO page; anything else goes to the catalog.
 const hero = document.querySelector('[data-hero-search]');
 if (hero) {
