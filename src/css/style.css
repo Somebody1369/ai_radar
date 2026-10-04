@@ -161,13 +161,18 @@ input[type='search']::-webkit-search-cancel-button:hover { filter: brightness(1.
 /* custom select (native <select> kept hidden for the form) */
 .dd { position: relative; display: block; width: 100%; }
 .dd-native { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; pointer-events: none; }
-.dd-btn {
-  display: block; text-align: left; cursor: pointer;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 40px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffffb3' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat; background-position: right 14px center; background-size: 16px;
+.dd-btn { display: block; text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 40px; }
+.dd.is-open .dd-btn { border-color: var(--accent); background-color: rgba(0, 153, 255, 0.06); }
+/* One chevron that turns over. Swapping two background images made the transition cross-fade them,
+   and the arrow flickered between "down" and "up" on every open and close. */
+.dd::after {
+  content: ''; position: absolute; right: 14px; top: 50%; width: 16px; height: 16px; margin-top: -8px;
+  background-color: var(--text-2); pointer-events: none;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / 16px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / 16px no-repeat;
+  transition: transform .2s ease, background-color .15s;
 }
-.dd.is-open .dd-btn { border-color: var(--accent); background-color: rgba(0, 153, 255, 0.06); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230099ff' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 15 6-6 6 6'/%3E%3C/svg%3E"); }
+.dd.is-open::after { transform: rotate(180deg); background-color: var(--accent); }
 .dd-list { right: auto; min-width: 100%; width: max-content; max-width: min(340px, calc(100vw - 32px)); outline: none; }
 .dd-up .dd-list { top: auto; bottom: calc(100% + 8px); }
 .dd-right .dd-list { left: auto; right: 0; }
@@ -216,9 +221,13 @@ a.chip:hover { background: var(--fill-hover); color: var(--text); }
 .hero .lead { margin: 0 auto 32px; }
 /* Sized so the longer Ukrainian headline still fits on one line on desktop. */
 .hero .display { font-size: clamp(30px, 4.6vw, 60px); letter-spacing: -0.04em; }
-.hero-search { display: flex; gap: 8px; width: 100%; max-width: 640px; padding: 6px; border-radius: var(--pill); background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35); }
+.hero-search { display: flex; gap: 8px; width: 100%; max-width: 640px; padding: 6px; border-radius: var(--pill); background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35); transition: border-color .15s; }
+/* The bar is one field: it lights up as a whole and the parts inside stay borderless. An accent
+   pill of its own 6px inside the bar's edge read as a double border. */
+.hero-search:focus-within { border-color: var(--accent); }
 .hero-search .input { border-color: transparent; background-color: transparent; }
 .hero-search .input:focus { background-color: transparent; }
+.hero-search .dd.is-open .dd-btn { border-color: transparent; background-color: var(--fill-hover); }
 .hero-search > .input-icon { flex: 1; }
 .hero-niche { flex: 0 0 210px; position: relative; }
 .hero-niche::after { content: ''; position: absolute; right: -4px; top: 14px; bottom: 14px; width: 1px; background: var(--line-strong); }
@@ -308,7 +317,7 @@ a.chip:hover { background: var(--fill-hover); color: var(--text); }
 
 .card-skel { min-height: 240px; background: linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%) 0 0 / 200% 100%; animation: shimmer 1.2s linear infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { .card-skel, .skel-line { animation: none; } * { transition: none !important; scroll-behavior: auto !important; } }
+@media (prefers-reduced-motion: reduce) { .card-skel, .skel-line { animation: none; } *, .dd::after { transition: none !important; scroll-behavior: auto !important; } }
 
 /* list & filters */
 .filters { position: sticky; top: 72px; z-index: 10; display: flex; flex-direction: column; gap: 10px; padding: 12px; margin-bottom: 20px; border-radius: 28px; background: rgba(28, 28, 28, 0.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); }
